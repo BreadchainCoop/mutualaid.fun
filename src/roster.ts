@@ -123,16 +123,21 @@ export function isAdmin(roster: RosterDoc | undefined, peerId: string): boolean 
 /* Data domains — per-doc, per-member sync grants -------------------------- */
 
 /**
- * The Subduction sedimentree id for an Automerge doc URL: the 16-byte
- * binaryDocumentId as hex, zero-padded to 32 bytes (64 hex chars). Verified
+ * The Subduction sedimentree id for an Automerge doc URL: the binaryDocumentId
+ * as hex, right-padded with zeros to 32 bytes (64 hex chars). Verified
  * empirically against @automerge/automerge-repo@2.6.0-subduction.40 — the
  * ids the policy hooks receive stringify to exactly this.
+ *
+ * Pad to a width rather than appending a fixed 32 zeros: plain automerge doc
+ * ids are 16 bytes, but keyhive-protected ones (repo.create2) are already 32,
+ * and appending would produce a 48-byte id that matches nothing — silently
+ * turning every per-domain denial below into a no-op.
  */
 export function sedimentreeIdForDocUrl(docUrl: string): string {
   const { binaryDocumentId } = parseAutomergeUrl(docUrl as never);
   let hex = "";
   for (const b of binaryDocumentId) hex += b.toString(16).padStart(2, "0");
-  return hex + "0".repeat(32);
+  return hex.padEnd(64, "0");
 }
 
 /**
@@ -212,8 +217,12 @@ export interface RosterPolicyOptions {
    * key(s), and this device's own key (a repo consults the policy for its
    * own operations too in some paths). Deny-by-default applies to everyone
    * else.
+   *
+   * Pass a getter when the list isn't known at construction time: under
+   * keyhive the Repo is built by the bridge, which supplies the device
+   * identity, so our own peer id only becomes knowable afterwards.
    */
-  alwaysAllow?: string[];
+  alwaysAllow?: string[] | (() => string[]);
   /**
    * Trust-on-first-use mode: allow ANY peer. Only sane in a client-only
    * topology (browser/CLI dialing out via `subductionWebsocketEndpoints`),
@@ -237,12 +246,13 @@ export function rosterPolicy(
   getRoster: () => RosterDoc | undefined,
   opts: RosterPolicyOptions = {}
 ): SubductionPolicyLike {
-  const always = new Set(opts.alwaysAllow ?? []);
+  const always = (): string[] =>
+    typeof opts.alwaysAllow === "function" ? opts.alwaysAllow() : opts.alwaysAllow ?? [];
 
   const allowed = (peerId: unknown): boolean => {
     if (opts.trustAll) return true;
     const id = String(peerId);
-    return always.has(id) || isActiveMember(getRoster(), id);
+    return always().includes(id) || isActiveMember(getRoster(), id);
   };
   const assertAllowed = (peerId: unknown, what: string): void => {
     if (!allowed(peerId)) {
@@ -280,7 +290,7 @@ export function rosterPolicy(
   const sedimentreeAllowed = (peerId: unknown, sedimentreeId: unknown): boolean => {
     if (opts.trustAll) return true;
     const id = String(peerId);
-    if (always.has(id)) return true;
+    if (always().includes(id)) return true;
     const domainKey = restrictedDomains().get(String(sedimentreeId).toLowerCase());
     if (!domainKey) return true;
     return domainAllowed(getRoster(), id, domainKey);

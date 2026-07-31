@@ -4,6 +4,8 @@ import wasm from "vite-plugin-wasm";
 export default defineConfig({
   root: "web",
   plugins: [wasm()],
+  // See vite.singlefile.config.ts: keyhive's inlined WASM is opt-in per build.
+  define: { __KEYHIVE_BUILD__: JSON.stringify(process.env.KEYHIVE === "1") },
   build: {
     target: "esnext",
     outDir: "../dist",

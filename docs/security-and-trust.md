@@ -31,12 +31,46 @@ Be clear-eyed about these, especially for sensitive data:
   forwards. This is why the shared community relay is fine for demos but **not**
   the right home for real household PII — [run your own
   relay](self-host-relay.md).
+
+  Worse than "in principle": we tested it, and an unenrolled device that knew a
+  document's address read another org's household names and phone numbers off
+  the shared relay in about four seconds.
+
+  This is not a misconfigured relay — it is what "no encryption yet" means. A
+  relay decides who may read a document from the access rules attached to that
+  document, and today's documents carry none. So **any** relay, however
+  carefully run, will hand them to whoever asks. The roster protects data that
+  your devices serve each other; it cannot protect data sitting on a relay.
+
+  End-to-end encryption is being built (see below) and is what actually closes
+  this. Until then, the protection is that the relay is a machine you control —
+  which is why running your own matters.
 - **In a local-first app, every enrolled device holds the whole dataset.** The
   admin/volunteer split hides destructive actions from volunteers, but it's a
   guard against accidents, not a hard security boundary between people already
   on your team. Only enroll devices you trust.
 - **Revoking a device stops future sync**, but a device that already synced has
   a copy of what it saw. Treat revocation as "no more updates," not "unsee."
+
+## What's coming: real end-to-end encryption
+
+We're adding [Keyhive](https://github.com/inkandswitch/keyhive) so that document
+contents are encrypted for the specific devices you've granted access. When it's
+on:
+
+- A relay stores **ciphertext it cannot read**, so it no longer matters much
+  whose relay you use.
+- **Revoking a device is cryptographic**, not just a rule other devices agree to
+  follow. A revoked device cannot decrypt anything written after its removal —
+  though it still keeps whatever it already synced, so "no more updates, not
+  unsee" stays true.
+- Per-domain access becomes real: a device granted the roster but denied distros
+  cannot decrypt distros, rather than relying on other devices to refuse it.
+
+The groundwork is merged and tested end-to-end, but it is **not enabled in the
+app yet** — it needs a relay running in keyhive mode, and existing orgs need a
+migration (encrypted documents get new addresses, so invite links change). Until
+this ships, everything in the section above still applies.
 
 ## Practical guidance
 

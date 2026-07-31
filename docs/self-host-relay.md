@@ -12,11 +12,14 @@ Out of the box, new orgs use the **maintainers' community relay**
 Subduction](https://www.inkandswitch.com/) sync server). That's why you can
 create an org and invite people immediately with nothing to configure.
 
-**What the relay can and can't do.** A relay only forwards updates between
-devices already on your roster — it can't add itself to your team, and it isn't
-meant to read or change your data. But it is shared infrastructure you don't
-control, and today updates are **not** end-to-end encrypted in transit beyond
-the normal `wss://` TLS. So:
+**What the relay can and can't do.** A relay can't add itself to your team, and
+your devices only accept updates from peers on your roster. But a relay decides
+who may read a document from the access rules attached to that document, and
+because updates aren't end-to-end encrypted yet, today's documents carry none.
+So the community relay will hand what it stores to anyone who asks for it by
+address — and so would any other relay, including one you run. Your roster
+governs what your *devices* serve each other; it does not govern what a relay
+serves. So:
 
 > For anything sensitive — real names, phone numbers, addresses — **run your own
 > relay** rather than the shared one. Your community, your infrastructure.
@@ -50,10 +53,32 @@ automatically on first connect.
 
 ## Running the relay itself
 
-The relay is a Subduction sync server. Running your own is an
-Ink & Switch project rather than part of this toolkit — see
-[inkandswitch.com](https://www.inkandswitch.com/) for the Subduction work. Once
-it's running at some `wss://…` address, point your org at it as above.
+The relay is a [Subduction](https://github.com/inkandswitch/subduction) sync
+server, an Ink & Switch project rather than part of this toolkit. Prebuilt
+binaries are published on its releases page for macOS and Linux; download the
+one for your machine and run:
+
+```
+subduction server --socket 0.0.0.0:8944 --data-dir /var/lib/subduction
+```
+
+It prints a **Peer ID** at startup — that's the relay key you can pin (see
+above). Put it behind TLS (a reverse proxy is fine) so devices can reach it at a
+`wss://…` address, then point your org at it as above.
+
+**Leave the default `--auth keyhive` mode on.** The alternative, `--auth open`,
+disables access control entirely and is meant only for testing sync. Keeping
+the default costs nothing and is what will enforce access once encryption ships.
+
+Be clear about what running your own relay buys you *today*, though: not
+secrecy. Because the toolkit doesn't encrypt document contents yet, your relay
+holds readable data and will serve it to anyone who asks by address — the
+default `--auth keyhive` mode can only enforce access on documents that carry
+access rules, and today's don't. What you get is that the machine is **yours**:
+you choose who can reach it, you can put it behind a VPN or firewall, and no
+shared server holds your community's information. Once end-to-end encryption
+ships (see [Security & trust](security-and-trust.md)) the relay will hold
+ciphertext it cannot read, and this caveat goes away.
 
 If you'd rather not run any relay, an org works fully **offline on a single
 device** — just leave the relay blank. You can add sync later without losing
