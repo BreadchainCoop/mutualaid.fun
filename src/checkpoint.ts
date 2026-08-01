@@ -161,51 +161,77 @@ export async function decryptCheckpoint(
 }
 
 /**
- * Import decrypted checkpoint docs into a repo as a recovered org copy:
- * fresh doc ids, roster pointers rewritten, and — if the restoring device
- * isn't on the roster — enrolled as an admin (holding the backup and its
- * passphrase is custody of the org).
+ * Read the documents out of a decrypted checkpoint.
+ *
+ * Imports them into `repo` only to decode the Automerge binaries; the caller
+ * copies the contents into a fresh org rather than adopting these handles.
+ * Restoring has to produce ENCRYPTED documents, and encryption is decided when
+ * a document is created — an imported one can never be retrofitted.
  */
-export function importCheckpoint(
+export function readCheckpointDocs(
   repo: Repo,
-  peerId: string,
-  docs: Array<{ key: string; bytes: Uint8Array }>,
-  deviceName = "restored device"
-): { rosterUrl: string } {
+  docs: Array<{ key: string; bytes: Uint8Array }>
+): { roster: RosterDoc; base: BamDoc; distros?: DistrosDoc } {
   const byKey = new Map(docs.map((d) => [d.key, d.bytes]));
   const rosterBytes = byKey.get("roster");
   const baseBytes = byKey.get("base");
   if (!rosterBytes || !baseBytes) {
     throw new Error("Checkpoint is missing the roster or base document.");
   }
-  const roster = repo.import<RosterDoc>(rosterBytes as never);
-  const base = repo.import<BamDoc>(baseBytes as never);
+  const roster = repo.import<RosterDoc>(rosterBytes as never).doc();
+  const base = repo.import<BamDoc>(baseBytes as never).doc();
   const distrosBytes = byKey.get("distros");
-  const distros = distrosBytes ? repo.import<DistrosDoc>(distrosBytes as never) : undefined;
+  const distros = distrosBytes
+    ? repo.import<DistrosDoc>(distrosBytes as never).doc()
+    : undefined;
+  if (!roster || !base) throw new Error("Checkpoint documents could not be read.");
+  return { roster, base, ...(distros ? { distros } : {}) };
+}
 
-  roster.change((d) => {
-    d.baseDocUrl = base.url;
-    if (distros && d.dataDomains?.["distros"]) {
-      d.dataDomains["distros"].docUrl = distros.url;
+/** Automerge rejects live proxies and undefined; round-trip through JSON. */
+function plain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * Copy a checkpoint's contents into a freshly created (encrypted) org.
+ *
+ * The restoring device is already this org's founding admin, so it keeps that
+ * role; the backup's other members come across with their contact cards, which
+ * is what lets `syncAccess` hand them their keys again when they reconnect.
+ * Document pointers are NOT copied — they refer to the backup's documents,
+ * while this org's are new and encrypted.
+ */
+export function restoreInto(
+  store: BamStore,
+  snapshot: { roster: RosterDoc; base: BamDoc; distros?: DistrosDoc }
+): void {
+  store.base.change((d) => {
+    for (const [key, value] of Object.entries(snapshot.base)) {
+      if (key === "meta") continue; // keeps this org's own identity
+      (d as unknown as Record<string, unknown>)[key] = plain(value);
     }
-    if (!d.members[peerId]) {
-      d.members[peerId] = {
-        peerId,
-        name: deviceName,
-        role: "admin",
-        addedBy: "restore",
-        addedAt: nowIso(),
-      };
-    } else {
-      // Un-revoke and re-empower the restorer: they hold the org's backup.
-      delete d.members[peerId]!.revokedAt;
-      delete d.members[peerId]!.revokedBy;
-      d.members[peerId]!.role = "admin";
-      delete d.members[peerId]!.inviteId;
-      delete d.members[peerId]!.inviteProof;
-    }
+    d.meta.org = snapshot.base.meta.org;
   });
-  return { rosterUrl: roster.url };
+
+  if (store.distros && snapshot.distros) {
+    const from = snapshot.distros;
+    store.distros.change((d) => {
+      for (const [key, value] of Object.entries(from)) {
+        if (key === "meta") continue;
+        (d as unknown as Record<string, unknown>)[key] = plain(value);
+      }
+    });
+  }
+
+  store.roster.change((d) => {
+    d.org = snapshot.roster.org;
+    for (const [peerId, member] of Object.entries(snapshot.roster.members)) {
+      if (peerId === store.peerId) continue; // we are the restoring admin
+      d.members[peerId] = plain(member);
+    }
+    // Invites are bearer credentials tied to the old org; let admins reissue.
+  });
 }
 
 /* IPFS pinning (optional): POST the ciphertext to a pinning service. The

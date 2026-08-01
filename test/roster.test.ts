@@ -11,7 +11,7 @@ import {
   NotAuthorized,
 } from "../src/roster.ts";
 import { openStore } from "../src/store.ts";
-import { freshStore } from "./helpers.ts";
+import { freshStore, memoryStorage } from "./helpers.ts";
 
 beforeAll(async () => {
   await initSubduction();
@@ -131,8 +131,7 @@ describe("subduction policy (deny by default)", () => {
 
 describe("store bootstrap", () => {
   it("openStore(createOrg) links the base doc from the roster", async () => {
-    const signer = MemorySigner.generate();
-    const store = await openStore({ signer, endpoints: [], createOrg: "Org X" });
+    const store = await openStore({ storage: memoryStorage(), endpoints: [], createOrg: "Org X" });
     expect(store.roster.doc()!.baseDocUrl).toBe(store.base.url);
     expect(store.base.doc()!.meta.org).toBe("Org X");
   });
@@ -147,7 +146,7 @@ describe("per-device view grants", () => {
       addMember, createInvite, redeemInvite, setViewGrant, viewAllowed,
     } = await import("../src/roster.ts");
     const store = await openStore({
-      signer: MemorySigner.generate(),
+      storage: memoryStorage(),
       endpoints: [],
       createOrg: "Grants Test",
       deviceName: "admin device",
@@ -190,7 +189,7 @@ describe("per-device view grants", () => {
     const { addMember, setViewGrant } = await import("../src/roster.ts");
     const { makeWebApi } = await import("../src/webapi.ts");
     const store = await openStore({
-      signer: MemorySigner.generate(),
+      storage: memoryStorage(),
       endpoints: [],
       createOrg: "Guard Test",
       deviceName: "admin device",

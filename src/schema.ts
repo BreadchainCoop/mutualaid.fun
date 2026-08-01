@@ -397,13 +397,6 @@ export interface RosterDoc {
   dataDomains?: {
     [key: string]: { name: string; docUrl: string; createdAt: string };
   };
-  /**
-   * This org's data documents are Keyhive-encrypted: only devices an admin has
-   * granted access can decrypt them, and a relay stores ciphertext it cannot
-   * read. The roster itself stays unencrypted — a joining device has to read
-   * it to publish its contact card before anyone can grant it anything.
-   */
-  encrypted?: boolean;
 }
 
 /** Automerge rejects explicit `undefined`; drop such keys (recursively) so an

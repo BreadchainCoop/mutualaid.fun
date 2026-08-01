@@ -1,11 +1,16 @@
 /** Encrypted checkpoints: round-trip, wrong-passphrase rejection, restore. */
 
 import { describe, expect, it } from "vitest";
-import { MemorySigner } from "@automerge/automerge-subduction";
 import { Repo } from "@automerge/automerge-repo";
-import { createCheckpoint, decryptCheckpoint, importCheckpoint } from "../src/checkpoint.ts";
-import type { BamDoc, RosterDoc } from "../src/schema.ts";
-import { freshStore, makeHousehold, makeRequest } from "./helpers.ts";
+import {
+  createCheckpoint,
+  decryptCheckpoint,
+  readCheckpointDocs,
+  restoreInto,
+} from "../src/checkpoint.ts";
+import { openStore } from "../src/store.ts";
+import { isProtected } from "../src/keyhive.ts";
+import { freshStore, makeHousehold, makeRequest, memoryStorage } from "./helpers.ts";
 
 describe("encrypted checkpoints", () => {
   it("round-trips the whole org and restores it into a fresh repo", async () => {
@@ -22,20 +27,25 @@ describe("encrypted checkpoints", () => {
     expect(asText).not.toContain("Ckpt Test");
 
     const { docs } = await decryptCheckpoint(bytes, "correct horse battery");
-    const restorerPeer = "ab".repeat(32);
-    const repo = new Repo({ signer: MemorySigner.generate() as never });
-    const { rosterUrl } = importCheckpoint(repo, restorerPeer, docs, "laptop");
+    const snapshot = readCheckpointDocs(new Repo({}), docs);
+    // A restore builds a NEW org and pours the backup into it, so the restored
+    // documents are encrypted like any other — re-importing the old binaries
+    // could only ever produce unencrypted ones.
+    const restored = await openStore({
+      storage: memoryStorage(),
+      endpoints: [],
+      createOrg: snapshot.roster.org,
+      deviceName: "laptop",
+    });
+    restoreInto(restored, snapshot);
 
-    const roster = await repo.find<RosterDoc>(rosterUrl as never);
-    const rosterDoc = roster.doc()!;
-    // Restorer enrolled as admin; pointers rewritten to the NEW doc urls.
-    expect(rosterDoc.members[restorerPeer]?.role).toBe("admin");
-    expect(rosterDoc.baseDocUrl).toBeTruthy();
-    expect(rosterDoc.baseDocUrl).not.toBe(store.base.url);
-    const base = await repo.find<BamDoc>(rosterDoc.baseDocUrl as never);
-    const households = Object.values(base.doc()!.households);
+    const households = Object.values(restored.base.doc()!.households);
     expect(households.some((x) => x.name === "Ckpt Test")).toBe(true);
-    expect(rosterDoc.dataDomains?.["distros"]?.docUrl).not.toBe(store.distros!.url);
+    // The restoring device holds the org, and the data is encrypted.
+    expect(restored.roster.doc()!.members[restored.peerId]?.role).toBe("admin");
+    expect(isProtected(restored.base.url)).toBe(true);
+    expect(restored.base.url).not.toBe(store.base.url);
+    expect(restored.distros!.url).not.toBe(store.distros!.url);
   });
 
   it("rejects a wrong passphrase and garbage files", async () => {

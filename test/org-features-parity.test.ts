@@ -16,7 +16,7 @@ import {
 } from "../src/domain/outreach.ts";
 import { MemorySigner } from "@automerge/automerge-subduction";
 import { openStore } from "../src/store.ts";
-import { freshStore, makeHousehold, makeRequest } from "./helpers.ts";
+import { freshStore, makeHousehold, makeRequest, memoryStorage } from "./helpers.ts";
 
 beforeAll(async () => {
   await initSubduction();
@@ -25,7 +25,7 @@ beforeAll(async () => {
 describe("org config with empty optional fields (Automerge undefined guard)", () => {
   it("creates an org without a short name without crashing", async () => {
     const store = await openStore({
-      signer: MemorySigner.generate(),
+      storage: memoryStorage(),
       endpoints: [],
       createOrg: "No Short Name Org",
       orgConfig: {

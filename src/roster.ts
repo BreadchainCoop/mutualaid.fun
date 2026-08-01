@@ -6,23 +6,25 @@
  * module implements that policy from the roster document: **deny by
  * default**, allow only peers with an active (non-revoked) roster entry.
  *
+ * This is the SECOND of two layers, and the weaker one. Org data is encrypted
+ * (see keyhive.ts), so a peer that ignores every rule here still cannot read
+ * anything: this policy decides who we will talk to, keyhive decides who can
+ * decrypt. That is why the two must agree — `syncAccess` in store.ts derives
+ * decryption membership from this roster, so revoking here revokes the keys.
+ *
  * Trust model, honestly stated:
  * - Every device enforces this policy against every peer it talks to, so an
  *   unauthorized key cannot pull or push data from/to any *compliant* peer.
- * - A relay you don't run (e.g. the Ink & Switch experiment server, which
- *   currently approves all relay) will happily store-and-forward for
- *   anyone; your data still only flows to peers YOUR devices authorize,
- *   because your devices check the roster before serving them. For
- *   server-side enforcement too, run your own subduction server with
- *   `--keyhive` and the same roster.
- * - Revocation stops future syncs; it cannot un-share what a device already
- *   replicated (the same is true of any distributed system).
+ * - A relay stores ciphertext it cannot read, and holds `relay` access only —
+ *   enough to store and forward, never enough to decrypt.
+ * - Revocation stops future syncs and future decryption; it cannot un-share
+ *   what a device already replicated (true of any distributed system).
  *
  * The roster is itself a synced Automerge doc, so membership changes are
- * offline-capable and merge like everything else. Only admins may mutate it
- * (enforced in code here; a hostile *modified* client is out of scope for
- * policy hooks and is what keyhive-style convergent capabilities will close
- * once end-to-end auth ships in the sync server).
+ * offline-capable and merge like everything else. Only admins may mutate it,
+ * enforced in code here — and a hostile *modified* client that ignores these
+ * checks still gets nothing, because the data it would serve itself is
+ * encrypted to keys it was never granted.
  */
 
 import { parseAutomergeUrl } from "@automerge/automerge-repo";
@@ -774,8 +776,6 @@ export interface InvitePayload {
   relayPeer?: string;
   inviteId: string;
   secret: string;
-  /** The org's data documents are encrypted; open the store in keyhive mode. */
-  enc?: boolean;
 }
 
 function base64UrlEncode(text: string): string {

@@ -8,18 +8,11 @@
  * Roster view, then call BAM.start().
  */
 
-import { WebCryptoSigner } from "@automerge/automerge-subduction";
 import { Repo, initSubduction } from "@automerge/automerge-repo";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
-import {
-  DEFAULT_SYNC_ENDPOINT,
-  KEYHIVE_SYNC_ENDPOINT,
-  learnedRelayPeers,
-  openStore,
-  syncAccess,
-  type BamStore,
-} from "../src/store.ts";
-import { decryptCheckpoint, fetchFromIpfs, importCheckpoint } from "../src/checkpoint.ts";
+import { DEFAULT_SYNC_ENDPOINT, openStore, syncAccess, type BamStore } from "../src/store.ts";
+import { openKeyhiveRepo } from "../src/keyhive.ts";
+import { decryptCheckpoint, fetchFromIpfs, readCheckpointDocs, restoreInto } from "../src/checkpoint.ts";
 import { rosterPolicy } from "../src/roster.ts";
 import type { RosterDoc } from "../src/schema.ts";
 import {
@@ -83,14 +76,6 @@ interface AppConfig {
     shortName?: string;
     branding?: { primaryColor?: string; themeColor?: string; title?: string; logo?: string };
   };
-  /**
-   * This org's data is end-to-end encrypted (see src/keyhive.ts). Sticky per
-   * device: an org is either encrypted or it isn't, decided when it was
-   * created, and opening it the other way fails loudly rather than silently
-   * producing an org that can't decrypt itself. Absent on orgs created before
-   * encryption existed, which keep working unchanged.
-   */
-  encrypted?: boolean;
 }
 
 const CONFIG_KEY = "bam-local-first-config";
@@ -158,9 +143,7 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
       logoSelect.append(opt);
     }
     const deviceName = el("input", { class: "input", placeholder: "e.g. Rosa — laptop" });
-    // New orgs are encrypted, so they default to the relay that can carry
-    // encrypted traffic. The plain community relay drops it silently.
-    const createEndpoint = el("input", { class: "input", value: KEYHIVE_SYNC_ENDPOINT }) as HTMLInputElement;
+    const createEndpoint = el("input", { class: "input", value: DEFAULT_SYNC_ENDPOINT }) as HTMLInputElement;
     const createBtn = el("button", { class: "btn btn-primary btn-block" }, "Create a new org on this device");
 
     const rosterUrl = el("input", { class: "input", placeholder: "automerge:…" });
@@ -177,9 +160,6 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
         deviceName: deviceName.value.trim() || undefined,
         // TOFU applies when an endpoint is set with no pinned relay key.
         endpoint: endpointValue,
-        // Encrypt new orgs, unless they've been pointed at a relay that can't
-        // carry encrypted traffic — in which case nothing would ever sync.
-        encrypted: !endpointValue || endpointValue === KEYHIVE_SYNC_ENDPOINT,
         orgConfig: {
           name,
           shortName: shortName.value.trim() || undefined,
@@ -328,19 +308,24 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
           : await fetchFromIpfs(cid);
         const { docs } = await decryptCheckpoint(bytes, restorePass.value);
         await initSubduction();
-        const box: { roster?: { doc(): RosterDoc | undefined } } = {};
-        const repo = new Repo({
-          signer: (await WebCryptoSigner.setup()) as never,
+        // Decode the backup, then pour it into a brand-new org. The restored
+        // org is encrypted like any other, which a straight re-import could
+        // never be: encryption is fixed when a document is created.
+        const scratch = new Repo({ storage: new IndexedDBStorageAdapter("bam-restore-scratch") });
+        const snapshot = readCheckpointDocs(scratch, docs);
+        const restored = await openStore({
           storage: new IndexedDBStorageAdapter("bam-local-first"),
-          subductionPolicy: rosterPolicy(() => box.roster?.doc(), { alwaysAllow: [peerId] }) as never,
-          subductionWebsocketEndpoints: [],
+          endpoints: [],
+          createOrg: snapshot.roster.org,
+          deviceName: "restored device",
         });
-        const { rosterUrl } = importCheckpoint(repo, peerId, docs, "restored device");
-        // Let the storage subsystem persist the imported docs before reload.
-        const flushable = repo as unknown as { flush?: () => Promise<void> };
-        if (typeof flushable.flush === "function") await flushable.flush();
-        await new Promise((r) => setTimeout(r, 400));
-        saveConfig({ mode: "join", rosterUrl, endpoint: DEFAULT_SYNC_ENDPOINT });
+        restoreInto(restored, snapshot);
+        await restored.repo.flush();
+        saveConfig({
+          mode: "join",
+          rosterUrl: restored.roster.url,
+          endpoint: DEFAULT_SYNC_ENDPOINT,
+        });
         location.reload();
       } catch (err) {
         restoreMsg.textContent = err instanceof Error ? err.message : String(err);
@@ -506,7 +491,6 @@ async function inviteScreen(
           rosterUrl: payload.rosterUrl,
           endpoint: payload.endpoint,
           relayPeer: payload.relayPeer,
-          ...(payload.enc ? { encrypted: true } : {}),
         },
         deviceName,
         profile: Object.keys(profile).length ? profile : undefined,
@@ -521,8 +505,7 @@ async function inviteScreen(
 
 async function boot(): Promise<void> {
   const root = document.getElementById("boot-root")!;
-  const signer = await WebCryptoSigner.setup();
-  const peerId = signer.peerId().toString();
+  const storage = new IndexedDBStorageAdapter("bam-local-first");
 
   // Read the hash BEFORE any stripping. An invite and a `#reset` can be
   // present together (e.g. a "run fresh" link) — parse both first, then
@@ -555,49 +538,30 @@ async function boot(): Promise<void> {
     };
   }
   if (!config) {
+    // Only the first-run screen needs the device key up front, to show the
+    // operator. It lives in the same storage as this device's encryption keys,
+    // so ask the encryption layer for it rather than keeping a second copy —
+    // and only here, so a returning device builds one keyhive instance, not two.
+    const { peerId } = await openKeyhiveRepo({ storage, endpoints: [] });
     config = await firstRunScreen(root, peerId);
   }
 
   root.innerHTML = "<div class='loading'>Opening the local store…</div>";
-  const storage = new IndexedDBStorageAdapter("bam-local-first");
-  // Relay-peer field left empty + an endpoint set = trust-on-first-use:
-  // learn the relay's key on this connect, pin it in the saved config.
-  const tofu = !!config.endpoint && !config.relayPeer;
-  const open = (encrypted: boolean): Promise<BamStore> =>
-    openStore({
-      signer,
-      storage,
-      invite: inviteRedemption,
-      endpoints: config!.endpoint ? [config!.endpoint] : [],
-      alwaysAllow: config!.relayPeer ? [config!.relayPeer] : [],
-      // Keyhive already trusts its sync server by its shipped identity, and
-      // trust-on-first-use would hand a stranger the same standing.
-      trustDialedRelays: tofu && !encrypted,
-      ...(encrypted ? { keyhive: true } : {}),
-      ...(config!.mode === "join"
-        ? { rosterUrl: config!.rosterUrl }
-        : {
-            createOrg: config!.orgName ?? "My Mutual Aid",
-            deviceName: config!.deviceName || "founding device",
-            orgConfig: config!.orgConfig,
-          }),
-    });
-
   let store: BamStore;
   try {
-    try {
-      store = await open(!!config.encrypted);
-    } catch (err) {
-      // Joining by a pasted roster link (or an invite made before encryption
-      // existed) can't say whether the org is encrypted. The org itself knows,
-      // and openStore says so precisely — so take it at its word and retry
-      // rather than making the volunteer answer a question about cryptography.
-      const message = err instanceof Error ? err.message : String(err);
-      if (!/encrypted|encryption/i.test(message) || config.mode !== "join") throw err;
-      const encrypted = /open it with keyhive enabled/i.test(message);
-      store = await open(encrypted);
-      config = { ...config, encrypted };
-    }
+    store = await openStore({
+      storage,
+      invite: inviteRedemption,
+      endpoints: config.endpoint ? [config.endpoint] : [],
+      alwaysAllow: config.relayPeer ? [config.relayPeer] : [],
+      ...(config.mode === "join"
+        ? { rosterUrl: config.rosterUrl }
+        : {
+            createOrg: config.orgName ?? "My Mutual Aid",
+            deviceName: config.deviceName || "founding device",
+            orgConfig: config.orgConfig,
+          }),
+    });
   } catch (err) {
     localStorage.removeItem(CONFIG_KEY);
     root.innerHTML = `<div class='card' style='max-width:560px;margin:40px auto'>
@@ -609,23 +573,6 @@ async function boot(): Promise<void> {
   // Persist config only after a successful open, with the resolved roster URL
   // so subsequent loads work fully offline.
   saveConfig({ ...config, mode: "join", rosterUrl: store.roster.url });
-
-  if (tofu) {
-    // Pin the learned relay key so future sessions verify it.
-    void (async () => {
-      for (let i = 0; i < 20; i++) {
-        if (store.repo.isSubductionConnected()) {
-          const learned = await learnedRelayPeers(store);
-          if (learned.length) {
-            saveConfig({ ...config, mode: "join", rosterUrl: store.roster.url, relayPeer: learned[0] });
-            console.info(`trust-on-first-use: pinned relay peer ${learned[0]}`);
-            return;
-          }
-        }
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-    })();
-  }
 
   // Console bootstrap: adapter + languages first, then the classic scripts.
   const w = window as unknown as { BAM?: Record<string, unknown> };
@@ -649,8 +596,6 @@ async function boot(): Promise<void> {
       })),
     /** This device's volunteer profile (languages, vehicle, availability). */
     myProfile: () => store.roster.doc()?.members[store.peerId]?.profile ?? null,
-    /** Whether this org's data is end-to-end encrypted. */
-    encrypted: () => !!store.roster.doc()?.encrypted,
     revoke: (peerId: string) => revokeMember(store.roster, store.peerId, peerId),
     reinstate: (peerId: string) => reinstateMember(store.roster, store.peerId, peerId),
     // Data domains (Architecture A): grant/deny what each device may SYNC.
@@ -687,7 +632,7 @@ async function boot(): Promise<void> {
   // catches a volunteer publishing their contact card minutes after being
   // added. Debounced because a single UI action can touch the doc repeatedly,
   // and serialised because keyhive's WASM is not reentrant.
-  if (store.hive) {
+  {
     let pending: ReturnType<typeof setTimeout> | undefined;
     let running = false;
     const reconcile = async (): Promise<void> => {

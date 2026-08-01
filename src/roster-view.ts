@@ -625,9 +625,6 @@ export function registerRosterView(store: BamStore): void {
           relayPeer: config.relayPeer,
           inviteId: invite.id,
           secret,
-          // So the joining device opens in the same mode; without it the org
-          // would look like a plaintext one and fail to decrypt anything.
-          ...(store.roster.doc()?.encrypted ? { enc: true } : {}),
         };
         const url = buildInviteUrl(location.origin + location.pathname, payload);
         const canvas = document.createElement("canvas");

@@ -4,8 +4,6 @@ import wasm from "vite-plugin-wasm";
 export default defineConfig({
   root: "web",
   plugins: [wasm()],
-  // See vite.singlefile.config.ts: KEYHIVE=0 builds without encryption.
-  define: { __KEYHIVE_BUILD__: JSON.stringify(process.env.KEYHIVE !== "0") },
   build: {
     target: "esnext",
     outDir: "../dist",

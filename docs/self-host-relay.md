@@ -7,26 +7,25 @@ each device holds the whole dataset.
 
 ## The default: the community relay
 
-Out of the box, new orgs use the **maintainers' community relay**
-(`wss://subduction.sync.inkandswitch.com`, an [Ink & Switch
-Subduction](https://www.inkandswitch.com/) sync server). That's why you can
-create an org and invite people immediately with nothing to configure.
+Out of the box, orgs use `wss://keyhive.sync.automerge.org`, a community sync
+server run by the [Automerge](https://automerge.org/) project. That's why you
+can create an org and invite people immediately with nothing to configure.
 
-**What the relay can and can't do.** New orgs are end-to-end encrypted, so the
-relay stores ciphertext it cannot read — it shuttles your updates without ever
-seeing a name or a phone number. It can still see the shape of things (which
-devices are online, roughly how much is changing), just not the contents.
+**What the relay can and can't do.** Your data is end-to-end encrypted, so the
+relay stores ciphertext it cannot read — it shuttles updates without ever seeing
+a name or a phone number. It can still see the shape of things (which devices
+are online, roughly how much is changing), just not the contents. That's the
+trade: you get sync you don't have to run, and it learns your traffic pattern
+but none of your data.
 
-Encrypted orgs default to `wss://keyhive.sync.automerge.org`, which supports
-encrypted sync. The older community relay at
-`wss://subduction.sync.inkandswitch.com` does **not** — it runs in an open mode
-that ignores encrypted traffic entirely, so an encrypted org pointed at it will
-appear to work locally and silently never sync.
+A relay has to run in **keyhive mode** to carry encrypted traffic. A server in
+`--auth open` mode — including the older `wss://subduction.sync.inkandswitch.com`
+— silently ignores it, so an org pointed at one appears to work locally and
+never syncs.
 
-> If your org was created **before** encryption shipped, its data is readable by
-> anyone who learns a document address, on any relay. For real names, phone
-> numbers and addresses, either move to a new (encrypted) org or **run your own
-> relay** and keep it off the public one.
+> Running your own is still worth it if you'd rather not depend on someone
+> else's uptime, or you want your community's traffic to stay on your own
+> infrastructure. It is no longer required to keep your data private.
 
 ## Point your org at your own relay
 
@@ -43,17 +42,12 @@ You don't need to change any code. Wherever a relay is set, use your own
 
 Everyone on a team must point at the **same** relay to sync with each other.
 
-## Pinning the relay's key
+## Trusting the relay
 
-Each device trusts a relay by its key. The first time you connect to a new
-relay, the app **trusts it on first use** and pins its key, so later sessions
-verify they're talking to the same relay.
-
-When **joining** an org, if you already know the relay's key you can set it in
-the **Relay key** field on the Join screen's Advanced panel (or `--relay-peer
-<hex>` on `org join` / `sync`) to skip the trust-on-first-use step. When you
-**create** a new org there's no Relay key field — the app pins the relay's key
-automatically on first connect.
+Each device trusts a relay by its key, and the default relay's key ships with
+the app — there is nothing to configure or verify by hand. Point a device at a
+relay of your own and you supply its key alongside the address (the server
+prints it at startup as its **Peer ID**).
 
 ## Running the relay itself
 
@@ -75,14 +69,9 @@ traffic and enforces access. The alternative, `--auth open`, disables access
 control entirely *and* ignores encrypted sync — it exists for testing, and an
 encrypted org pointed at it will never sync.
 
-Point your org at your relay by putting its `wss://…` address in the create or
-join screen's **Advanced: sync relay** panel, in place of the default.
-
-Note that for an **unencrypted** org (one created before encryption shipped), a
-relay of your own holds readable data and will still serve it to anyone who asks
-by address — `--auth keyhive` can only enforce access on documents that carry
-access rules, and those don't. What you gain there is that the machine is
-**yours**: you choose who can reach it and can put it behind a VPN or firewall.
+Your relay only ever holds ciphertext, so a compromise of the machine does not
+expose household data. Keep it patched anyway: it can still see who is online
+and when, and it is the thing your team depends on to sync at all.
 
 If you'd rather not run any relay, an org works fully **offline on a single
 device** — just leave the relay blank. You can add sync later without losing

@@ -20,11 +20,9 @@
  *   jobs website-data [--out f]    hourly cron: open request counts as JSON
  *   sync [--endpoint <wss://…>]    connect to a Subduction relay and stay up
  *
- * Relay trust: pass --relay-peer <hex> when you know the relay's key, or
- * --trust-relay to learn it on the first connect and pin it in state.json
- * (needed for relays whose key isn't published, e.g. the Ink & Switch
- * experiment relay at wss://subduction.sync.inkandswitch.com — the default
- * endpoint; not yet publicly resolvable as of 2026-07-06).
+ * Relay trust: the default relay's key ships with the toolkit. Pass
+ * --relay-peer <hex> when pointing at one you run yourself (the server prints
+ * its Peer ID at startup).
  *
  * `jobs` and `outbox drain` connect using the endpoint/relay saved by
  * `org join`/`sync` (if any) and linger briefly so mutations replicate —
@@ -36,12 +34,11 @@
  * <data-dir>/state.json ({rosterUrl}), <data-dir>/storage/ (automerge-repo).
  */
 
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { MemorySigner } from "@automerge/automerge-subduction";
 import { NodeFSStorageAdapter } from "@automerge/automerge-repo-storage-nodefs";
-import { DEFAULT_SYNC_ENDPOINT, learnedRelayPeers, openStore } from "./store.ts";
+import { DEFAULT_SYNC_ENDPOINT, openStore } from "./store.ts";
+import { openKeyhiveRepo } from "./keyhive.ts";
 import type { BamStore } from "./store.ts";
 import {
   addMember,
@@ -88,19 +85,12 @@ function str(flags: Flags, key: string): string | undefined {
   return typeof v === "string" ? v : undefined;
 }
 
-async function loadSigner(dataDir: string): Promise<MemorySigner> {
-  const keyPath = join(dataDir, "identity.key");
-  if (existsSync(keyPath)) {
-    const bytes = new Uint8Array(await readFile(keyPath));
-    return MemorySigner.fromBytes(bytes);
-  }
-  // MemorySigner cannot export its secret, so we mint the 32 secret bytes
-  // ourselves, persist them (0600), and always construct via fromBytes.
-  await mkdir(dataDir, { recursive: true });
-  const secret = crypto.getRandomValues(new Uint8Array(32));
-  await writeFile(keyPath, secret);
-  await chmod(keyPath, 0o600);
-  return MemorySigner.fromBytes(secret);
+/**
+ * This device's storage. It holds the identity keypair and encryption state as
+ * well as the documents, so the same directory is the device.
+ */
+function deviceStorage(dataDir: string): NodeFSStorageAdapter {
+  return new NodeFSStorageAdapter(join(dataDir, "storage"));
 }
 
 interface CliState {
@@ -124,24 +114,16 @@ async function saveState(dataDir: string, state: CliState): Promise<void> {
   await writeFile(join(dataDir, "state.json"), JSON.stringify(state, null, 2) + "\n");
 }
 
-async function open(
-  dataDir: string,
-  endpoints: string[] = [],
-  trustDialedRelays = false
-): Promise<BamStore> {
-  const signer = await loadSigner(dataDir);
+async function open(dataDir: string, endpoints: string[] = []): Promise<BamStore> {
   const state = await loadState(dataDir);
   if (!state.rosterUrl) {
     throw new Error(`no org in ${dataDir} — run \`org create\` or \`org join\` first`);
   }
-  const storage = new NodeFSStorageAdapter(join(dataDir, "storage"));
   return openStore({
-    signer,
-    storage,
+    storage: deviceStorage(dataDir),
     endpoints,
     rosterUrl: state.rosterUrl,
     alwaysAllow: state.relayPeer ? [state.relayPeer] : [],
-    trustDialedRelays,
   });
 }
 
@@ -172,18 +154,23 @@ async function main(): Promise<void> {
 
   switch (command) {
     case "identity": {
-      const signer = await loadSigner(dataDir);
-      print({ peerId: signer.peerId().toString(), dataDir });
-      return;
+      // The identity lives in the device's storage, so ask the encryption
+      // layer for it rather than keeping a second copy on disk.
+      const { peerId } = await openKeyhiveRepo({
+        storage: deviceStorage(dataDir),
+        endpoints: [],
+      });
+      print({ peerId, dataDir });
+      // The encryption layer keeps sync timers running, so exit explicitly
+      // rather than waiting for an event loop that never drains.
+      process.exit(0);
     }
 
     case "org": {
-      const signer = await loadSigner(dataDir);
-      const storage = new NodeFSStorageAdapter(join(dataDir, "storage"));
+      const storage = deviceStorage(dataDir);
       if (subcommand === "create") {
         const name = str(flags, "name") ?? "BAM";
         const store = await openStore({
-          signer,
           storage,
           endpoints: [],
           createOrg: name,
@@ -196,9 +183,10 @@ async function main(): Promise<void> {
           baseDocUrl: store.base.url,
           peerId: store.peerId,
         });
-        // Give storage a beat to flush before exit.
+        // Give storage a beat to flush, then exit: the encryption layer's
+        // sync timers would otherwise keep the process alive.
         await new Promise((r) => setTimeout(r, 300));
-        return;
+        process.exit(0);
       }
       if (subcommand === "join") {
         // QR onboarding: --invite <url|payload> carries everything —
@@ -210,20 +198,12 @@ async function main(): Promise<void> {
         if (!rosterUrl) throw new Error("org join requires --roster <automerge:url> or --invite <url>");
         const endpoint = str(flags, "endpoint") ?? payload?.endpoint ?? DEFAULT_SYNC_ENDPOINT;
         let relayPeer = str(flags, "relay-peer") ?? payload?.relayPeer;
-        const trustRelay = !!flags["trust-relay"] || (!!payload && !relayPeer);
-        if (!relayPeer && !trustRelay) {
-          throw new Error(
-            "org join needs --relay-peer <hex>, or --trust-relay to learn+pin the relay's key on first use"
-          );
-        }
         // Joining needs the network: the roster/base docs live elsewhere.
         const store = await openStore({
-          signer,
           storage,
           endpoints: [endpoint],
           rosterUrl,
           alwaysAllow: relayPeer ? [relayPeer] : [],
-          trustDialedRelays: trustRelay && !relayPeer,
           invite: payload
             ? {
                 inviteId: payload.inviteId,
@@ -232,12 +212,6 @@ async function main(): Promise<void> {
               }
             : undefined,
         });
-        if (!relayPeer && trustRelay) {
-          // TOFU: pin the learned relay key for all future (verified) runs.
-          const learned = await learnedRelayPeers(store);
-          relayPeer = learned[0];
-          console.error(`trust-on-first-use: pinned relay peer ${relayPeer ?? "(none learned)"}`);
-        }
         await saveState(dataDir, { rosterUrl, endpoint, relayPeer });
         print({ joined: store.roster.doc()?.org, rosterUrl, peerId: store.peerId, relayPeer });
         // Linger so a QR self-enrollment replicates before exit.
@@ -414,34 +388,19 @@ async function main(): Promise<void> {
       const state = await loadState(dataDir);
       const endpoint = str(flags, "endpoint") ?? state.endpoint ?? DEFAULT_SYNC_ENDPOINT;
       const relayPeer = str(flags, "relay-peer") ?? state.relayPeer;
-      const trustRelay = !!flags["trust-relay"] && !relayPeer;
       if (relayPeer && relayPeer !== state.relayPeer) {
         await saveState(dataDir, { ...state, endpoint, relayPeer });
       }
-      const store = await open(dataDir, [endpoint], trustRelay);
+      const store = await open(dataDir, [endpoint]);
       console.log(`syncing via ${endpoint} as ${store.peerId}`);
-      if (trustRelay) {
-        console.log("trust-on-first-use: will pin the relay's key once connected");
-      }
       console.log("Ctrl-C to stop.");
-      let pinned = !trustRelay;
-      const status = async (): Promise<void> => {
+      const status = (): void => {
         console.log(
           `[${new Date().toISOString()}] connected=${store.repo.isSubductionConnected()}`
         );
-        if (!pinned && store.repo.isSubductionConnected()) {
-          const learned = await learnedRelayPeers(store);
-          if (learned.length) {
-            pinned = true;
-            await saveState(dataDir, { ...state, endpoint, relayPeer: learned[0] });
-            console.log(
-              `pinned relay peer ${learned[0]} — future runs verify it (state.json)`
-            );
-          }
-        }
       };
-      setTimeout(() => void status(), 3000);
-      setInterval(() => void status(), 30000);
+      setTimeout(status, 3000);
+      setInterval(status, 30000);
       await new Promise(() => {}); // run until interrupted
       return;
     }

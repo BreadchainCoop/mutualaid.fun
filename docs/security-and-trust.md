@@ -32,19 +32,18 @@ page is an honest account of what the toolkit protects, and what it doesn't yet
 
 Be clear-eyed about these, especially for sensitive data:
 
-- **Orgs created before encryption shipped are still unencrypted.** They keep
-  working exactly as before, but their data is readable by anyone who learns a
-  document's address — we tested this, and an unenrolled device read household
-  names and phone numbers off the shared relay in about four seconds. That is
-  what "no encryption" means: a relay decides who may read a document from the
-  access rules attached to it, and those documents carry none, so **any** relay
-  will hand them over. The roster protects data your devices serve each other;
-  it cannot protect data sitting on a relay.
+- **Orgs created before encryption shipped no longer open.** Encryption isn't a
+  setting — an org either has it or it doesn't, decided when its documents were
+  created, and those documents can't be converted. The app now only speaks the
+  encrypted form, so an older org needs to be recreated.
 
-  These orgs cannot be encrypted in place — encrypted documents get new
-  addresses. Moving one across means creating a new org and re-entering or
-  importing its data. If you hold real household PII in an org from before this
-  change, that is worth doing.
+  If you have one with real data in it, restore it from a backup: Admin →
+  Backups on the old build, then **Restore from a backup** on the start screen
+  here. The restore builds a fresh, encrypted org and pours your data into it.
+  Be aware what those old orgs were: their data was readable by anyone who
+  learned a document's address — we tested it, and an unenrolled device read
+  household names and phone numbers off the shared relay in about four seconds.
+  Treat anything that lived in one as having been exposed.
 - **In a local-first app, every enrolled device holds the whole dataset.** The
   admin/volunteer split hides destructive actions from volunteers, but it's a
   guard against accidents, not a hard security boundary between people already

@@ -129,20 +129,16 @@ describe("keyhive, offline", () => {
   it("reopens a whole encrypted org from storage", async () => {
     const dir = mkdtempSync(join(tmpdir(), "kh-reload-org-"));
     const created = await openStore({
-      signer: MemorySigner.generate(),
       storage: new NodeFSStorageAdapter(dir),
       endpoints: [],
-      keyhive: true,
       createOrg: "Reload Town",
       deviceName: "founder",
     });
     await created.repo.flush();
 
     const reopened = await openStore({
-      signer: MemorySigner.generate(),
       storage: new NodeFSStorageAdapter(dir),
       endpoints: [],
-      keyhive: true,
       rosterUrl: created.roster.url,
     });
     expect(reopened.roster.doc()?.org).toBe("Reload Town");
@@ -152,36 +148,11 @@ describe("keyhive, offline", () => {
     expect(reopened.roster.doc()!.members[reopened.peerId]?.role).toBe("admin");
   }, 90000);
 
-  it("refuses to open a pre-keyhive org in keyhive mode", async () => {
-    // Documents cannot be upgraded in place, so joining a plaintext org with
-    // keyhive on would sync it happily while `hive` implies it is encrypted.
-    // Same storage, so the roster really is found and the check is what
-    // rejects it — not an incidental "document unavailable".
-    const dir = mkdtempSync(join(tmpdir(), "kh-legacy-"));
-    const plain = await openStore({
-      signer: MemorySigner.generate(),
-      storage: new NodeFSStorageAdapter(dir),
-      endpoints: [],
-      createOrg: "Legacy Town",
-    });
-    await plain.repo.flush();
-    await expect(
-      openStore({
-        signer: MemorySigner.generate(),
-        storage: new NodeFSStorageAdapter(dir),
-        endpoints: [],
-        keyhive: true,
-        rosterUrl: plain.roster.url,
-      })
-    ).rejects.toThrow(/cannot be encrypted in place|migration/i);
-  }, 30000);
 
   it("encrypts the data documents and leaves the roster readable", async () => {
     const store = await openStore({
-      signer: MemorySigner.generate(),
       storage: tmp("kh-org-"),
       endpoints: [],
-      keyhive: true,
       createOrg: "Keyhive Town",
       deviceName: "founding device",
     });
@@ -193,7 +164,6 @@ describe("keyhive, offline", () => {
     // to publish the contact card that access is granted to. Encrypting it
     // would be a lock whose key is inside the box.
     expect(isProtected(store.roster.url)).toBe(false);
-    expect(store.roster.doc()?.encrypted).toBe(true);
 
     // The founding device is on its own roster under the keyhive identity,
     // and has published the card that makes it grantable.
@@ -207,10 +177,8 @@ describe("keyhive, offline", () => {
     // anything in the first place. Enabling one must not disable the other.
     const calls: string[] = [];
     const store = await openStore({
-      signer: MemorySigner.generate(),
       storage: tmp("kh-policy-"),
       endpoints: [],
-      keyhive: true,
       createOrg: "Keyhive Town",
     });
     expect(store.hive).toBeDefined();
@@ -338,10 +306,8 @@ describe.skipIf(!RELAY)("keyhive through a relay", () => {
     // systems, and this is the reconciliation that keeps them in step.
     const relay = [RELAY!];
     const admin = await openStore({
-      signer: MemorySigner.generate(),
       storage: tmp("kh-team-a-"),
       endpoints: relay,
-      keyhive: true,
       createOrg: "TeamTown",
       deviceName: "admin",
     });
@@ -364,10 +330,8 @@ describe.skipIf(!RELAY)("keyhive through a relay", () => {
 
     // The volunteer joins the way the product joins: roster URL only.
     const volunteer = await openStore({
-      signer: MemorySigner.generate(),
       storage: tmp("kh-team-b-"),
       endpoints: relay,
-      keyhive: true,
       rosterUrl: admin.roster.url,
       invite: undefined,
     }).catch((err) => err as Error);
