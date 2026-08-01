@@ -722,6 +722,48 @@ export function updateOwnProfile(
   });
 }
 
+/**
+ * Publish this device's Keyhive contact card on its own roster entry.
+ *
+ * In an encrypted org this is what makes a member reachable: admins grant
+ * decryption access to the card, so a device that hasn't published one is on
+ * the roster but can't read anything. Self-service by design — only the device
+ * holding the key can vouch for it — and idempotent, since the card is stable
+ * and rewriting it on every boot would churn the document.
+ */
+export function publishContactCard(
+  handle: DocHandle<RosterDoc>,
+  peerId: string,
+  contactCard: string
+): void {
+  const member = handle.doc()?.members[peerId];
+  if (!member || member.contactCard === contactCard) return;
+  handle.change((d) => {
+    const m = d.members[peerId];
+    if (m) m.contactCard = contactCard;
+  });
+}
+
+/**
+ * Who should be able to decrypt `domainKey` (undefined = the base document).
+ *
+ * Active members only, and only those that have published a contact card.
+ * Domain denial applies on top, so a volunteer denied "distros" is excluded
+ * from that document's key rather than merely refused by well-behaved peers.
+ */
+export function keyhiveGrantees(
+  roster: RosterDoc | undefined,
+  domainKey?: string
+): { peerId: string; contactCard: string; role: Role }[] {
+  const out: { peerId: string; contactCard: string; role: Role }[] = [];
+  for (const [peerId, m] of Object.entries(roster?.members ?? {})) {
+    if (!isActiveMember(roster, peerId) || !m.contactCard) continue;
+    if (domainKey && !domainAllowed(roster, peerId, domainKey)) continue;
+    out.push({ peerId, contactCard: m.contactCard, role: m.role });
+  }
+  return out;
+}
+
 /* Invite links ------------------------------------------------------------ */
 
 export interface InvitePayload {
@@ -732,6 +774,8 @@ export interface InvitePayload {
   relayPeer?: string;
   inviteId: string;
   secret: string;
+  /** The org's data documents are encrypted; open the store in keyhive mode. */
+  enc?: boolean;
 }
 
 function base64UrlEncode(text: string): string {

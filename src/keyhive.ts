@@ -24,6 +24,8 @@ import {
   initializeAutomergeRepoKeyhive,
   isUnprotectedDoc,
   setKeyhiveLogLevel,
+  KEYHIVE_SYNC_SERVER_PEER_ID,
+  SUBDUCTION_SYNC_SERVER_PEER_ID,
   type AutomergeRepoKeyhive,
 } from "@automerge/automerge-repo-keyhive";
 import { Repo, initSubduction, parseAutomergeUrl } from "@automerge/automerge-repo";
@@ -103,6 +105,29 @@ export async function openKeyhiveRepo(opts: OpenKeyhiveRepoOptions): Promise<Key
   });
   const signer = await hive.constructSubductionSigner();
   return { hive, repo, peerId: signer.peerId().toString() };
+}
+
+/**
+ * The sync server's peer id as the roster policy sees it (lowercase hex).
+ *
+ * Needed BEFORE the hive exists: the Repo starts dialing during construction,
+ * so a deny-by-default policy that only learns the server's id afterwards
+ * refuses the first connection. The bridge ships each server's identity as a
+ * constant, so this needs no network round-trip.
+ */
+export function syncServerPeerIdHex(selection: KeyhiveSyncServer = "keyhive"): string {
+  const base64 =
+    typeof selection === "string"
+      ? selection === "keyhive"
+        ? KEYHIVE_SYNC_SERVER_PEER_ID
+        : SUBDUCTION_SYNC_SERVER_PEER_ID
+      : selection.peerId;
+  // Already hex (a self-hosted server logs it that way)? Take it as-is.
+  if (/^[0-9a-f]{64}$/i.test(base64)) return base64.toLowerCase();
+  const raw = atob(base64);
+  let hex = "";
+  for (let i = 0; i < raw.length; i++) hex += raw.charCodeAt(i).toString(16).padStart(2, "0");
+  return hex;
 }
 
 /** Resolve the keyhive document behind an automerge URL. */
@@ -236,6 +261,63 @@ export async function myAccess(
   docUrl: string
 ): Promise<KeyhiveRole | null> {
   return roleOf(await hive.bestAccessForDoc(hive.active.contactCard.id, docUrl as never));
+}
+
+/**
+ * Bring a document's decryption membership in line with a desired list.
+ *
+ * The roster is the source of truth and this is the reconciler, rather than
+ * each roster edit performing a matching crypto call. Roster edits are local,
+ * synchronous and offline-capable; granting is asynchronous, needs the other
+ * device's contact card, and can only be done by an admin that happens to be
+ * online. Reconciling instead means a grant issued while the admin was away
+ * still lands the next time one boots, and a half-finished grant self-heals.
+ *
+ * A member's roster peer id and their keyhive identifier are the same Ed25519
+ * verifying key, so the two lists compare directly with no mapping table.
+ *
+ * Returns what it changed, so callers can log or surface it.
+ */
+export async function reconcileAccess(
+  hive: AutomergeRepoKeyhive,
+  repo: Repo,
+  docUrl: string,
+  desired: { peerId: string; contactCard: string; role: KeyhiveRole }[]
+): Promise<{ granted: string[]; revoked: string[]; failed: string[] }> {
+  const granted: string[] = [];
+  const revoked: string[] = [];
+  const failed: string[] = [];
+  if (!isProtected(docUrl)) return { granted, revoked, failed };
+
+  const current = await listAccess(hive, docUrl);
+  const want = new Map(desired.map((d) => [d.peerId, d]));
+
+  for (const member of current) {
+    // Never touch ourselves (revoking self empties the group and bricks the
+    // document) or the sync server (it needs relay access to carry anything).
+    if (member.isSelf || member.isSyncServer || member.role === "relay") continue;
+    if (want.has(member.id)) continue;
+    try {
+      await revokeAccess(hive, repo, docUrl, member.id);
+      revoked.push(member.id);
+    } catch {
+      failed.push(member.id);
+    }
+  }
+
+  const present = new Set(current.map((m) => m.id));
+  for (const [peerId, d] of want) {
+    if (present.has(peerId)) continue;
+    try {
+      await grantAccess(hive, docUrl, d.contactCard, d.role);
+      granted.push(peerId);
+    } catch {
+      // A card we can't parse or an agent keyhive hasn't seen yet: skip this
+      // member and let the next reconcile retry rather than aborting the rest.
+      failed.push(peerId);
+    }
+  }
+  return { granted, revoked, failed };
 }
 
 /**

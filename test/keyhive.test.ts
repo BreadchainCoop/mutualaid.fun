@@ -19,8 +19,14 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { openStore } from "../src/store.ts";
-import { rosterPolicy, sedimentreeIdForDocUrl } from "../src/roster.ts";
+import { openStore, syncAccess } from "../src/store.ts";
+import {
+  addMember,
+  publishContactCard,
+  revokeMember,
+  rosterPolicy,
+  sedimentreeIdForDocUrl,
+} from "../src/roster.ts";
 import {
   grantAccess,
   isProtected,
@@ -170,7 +176,7 @@ describe("keyhive, offline", () => {
     ).rejects.toThrow(/cannot be encrypted in place|migration/i);
   }, 30000);
 
-  it("creates an org whose documents are all encrypted", async () => {
+  it("encrypts the data documents and leaves the roster readable", async () => {
     const store = await openStore({
       signer: MemorySigner.generate(),
       storage: tmp("kh-org-"),
@@ -180,11 +186,19 @@ describe("keyhive, offline", () => {
       deviceName: "founding device",
     });
     expect(store.hive).toBeDefined();
-    for (const handle of [store.roster, store.base, store.distros!]) {
-      expect(isProtected(handle.url)).toBe(true);
-    }
-    // The founding device is on its own roster under the keyhive identity.
+    // The PII lives here, so this is what has to be encrypted.
+    expect(isProtected(store.base.url)).toBe(true);
+    expect(isProtected(store.distros!.url)).toBe(true);
+    // The roster deliberately is not: a joining device must be able to read it
+    // to publish the contact card that access is granted to. Encrypting it
+    // would be a lock whose key is inside the box.
+    expect(isProtected(store.roster.url)).toBe(false);
+    expect(store.roster.doc()?.encrypted).toBe(true);
+
+    // The founding device is on its own roster under the keyhive identity,
+    // and has published the card that makes it grantable.
     expect(store.roster.doc()!.members[store.peerId]!.role).toBe("admin");
+    expect(store.roster.doc()!.members[store.peerId]!.contactCard).toBeTruthy();
     expect(await myAccess(store.hive!, store.base.url)).toBe("admin");
   });
 
@@ -317,6 +331,102 @@ describe.skipIf(!RELAY)("keyhive through a relay", () => {
     // it does not reach back and unsee what already synced.
     expect(theirCopy.doc()?.households?.h1?.name).toBe("Household One");
   }, 180000);
+
+  it("gives roster members the keys, and takes them back on revoke", async () => {
+    // The whole point: "who an admin adds" has to be what decides who can
+    // decrypt. Roster membership and cryptographic membership are separate
+    // systems, and this is the reconciliation that keeps them in step.
+    const relay = [RELAY!];
+    const admin = await openStore({
+      signer: MemorySigner.generate(),
+      storage: tmp("kh-team-a-"),
+      endpoints: relay,
+      keyhive: true,
+      createOrg: "TeamTown",
+      deviceName: "admin",
+    });
+    admin.base.change((d) => {
+      d.households.h1 = {
+        id: "h1",
+        name: "SECRET-HOUSEHOLD",
+        invalidPhoneNumber: false,
+        intlPhoneNumber: false,
+        languages: [],
+        missedAppointmentCount: 0,
+        needsDelivery: false,
+        needsEmailOutreach: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    await admin.repo.flush().catch(() => {});
+    await sleep(4000);
+
+    // The volunteer joins the way the product joins: roster URL only.
+    const volunteer = await openStore({
+      signer: MemorySigner.generate(),
+      storage: tmp("kh-team-b-"),
+      endpoints: relay,
+      keyhive: true,
+      rosterUrl: admin.roster.url,
+      invite: undefined,
+    }).catch((err) => err as Error);
+    // Not yet a member, so it cannot even open the org.
+    expect(volunteer).toBeInstanceOf(Error);
+
+    // Admin enrols them, then reconciles.
+    const volunteerStore = await openKeyhiveRepo({
+      storage: tmp("kh-team-b2-"),
+      endpoints: relay,
+      peerIdSuffix: "mat-team-b",
+    });
+    addMember(admin.roster, admin.peerId, {
+      peerId: volunteerStore.peerId,
+      name: "volunteer",
+      role: "volunteer",
+    });
+    // Without a published card there is nobody to grant to...
+    expect((await syncAccess(admin)).granted).toEqual([]);
+    publishContactCard(admin.roster, volunteerStore.peerId, myContactCard(volunteerStore.hive));
+    // ...and with one, the grant follows from roster membership alone.
+    expect((await syncAccess(admin)).granted).toContain(volunteerStore.peerId);
+
+    await admin.repo.flush().catch(() => {});
+    await sleep(8000);
+    const theirCopy = await volunteerStore.repo.find<{
+      households: Record<string, { name: string }>;
+    }>(admin.base.url as never);
+    const deadline = Date.now() + 30000;
+    while (Date.now() < deadline && !theirCopy.doc()?.households?.h1) await sleep(500);
+    expect(theirCopy.doc()?.households?.h1?.name).toBe("SECRET-HOUSEHOLD");
+    expect(await myAccess(volunteerStore.hive, admin.base.url)).toBe("edit");
+
+    // Revoking on the roster takes the keys back.
+    revokeMember(admin.roster, admin.peerId, volunteerStore.peerId);
+    expect((await syncAccess(admin)).revoked).toContain(volunteerStore.peerId);
+
+    admin.base.change((d) => {
+      d.households.h2 = {
+        id: "h2",
+        name: "AFTER-REVOKE",
+        invalidPhoneNumber: false,
+        intlPhoneNumber: false,
+        languages: [],
+        missedAppointmentCount: 0,
+        needsDelivery: false,
+        needsEmailOutreach: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+    });
+    await admin.repo.flush().catch(() => {});
+    await sleep(20000);
+    // The revoked device cannot decrypt what was written after it left...
+    expect(theirCopy.doc()?.households?.h2).toBeUndefined();
+    expect(await myAccess(volunteerStore.hive, admin.base.url)).toBeNull();
+    // ...but keeps what it already had, which is the honest limit of revocation.
+    expect(theirCopy.doc()?.households?.h1?.name).toBe("SECRET-HOUSEHOLD");
+  }, 240000);
 
   it("would notice if the post-revoke key rotation were dropped", async () => {
     // revokeAccess() rotates the document key by hand because the bridge does

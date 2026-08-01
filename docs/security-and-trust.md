@@ -9,9 +9,15 @@ page is an honest account of what the toolkit protects, and what it doesn't yet
 - **Your data lives on your devices.** There's no company server holding your
   community's information. Each device on your team keeps its own full copy;
   they reconcile changes when they can reach each other.
+- **Your data is encrypted for your team only.** New orgs encrypt household
+  data end-to-end, so a relay passing your updates along stores ciphertext it
+  cannot read. See [End-to-end encryption](#end-to-end-encryption) below.
 - **Device identity.** Every device has its own cryptographic key
-  (Ed25519). In the browser the private key is stored non-extractably; the
-  command line keeps it in a `0600` file. You are your device's key.
+  (Ed25519), kept in the browser's storage or, on the command line, a `0600`
+  file. You are your device's key. (In an encrypted org that key must be
+  usable by the encryption layer, so it is stored in a form a script running
+  on the page could read — one more reason to keep the app on a device you
+  trust and not paste unknown code into the browser console.)
 - **A roster gates access.** Only devices an admin has put on the roster can
   sync your org's data. Everyone else is turned away automatically, on every
   device — this is deny-by-default, not a setting you have to switch on. Beyond
@@ -26,25 +32,19 @@ page is an honest account of what the toolkit protects, and what it doesn't yet
 
 Be clear-eyed about these, especially for sensitive data:
 
-- **Updates are not end-to-end encrypted** beyond the normal `wss://` TLS to the
-  relay. A relay you don't control could, in principle, observe traffic it
-  forwards. This is why the shared community relay is fine for demos but **not**
-  the right home for real household PII — [run your own
-  relay](self-host-relay.md).
+- **Orgs created before encryption shipped are still unencrypted.** They keep
+  working exactly as before, but their data is readable by anyone who learns a
+  document's address — we tested this, and an unenrolled device read household
+  names and phone numbers off the shared relay in about four seconds. That is
+  what "no encryption" means: a relay decides who may read a document from the
+  access rules attached to it, and those documents carry none, so **any** relay
+  will hand them over. The roster protects data your devices serve each other;
+  it cannot protect data sitting on a relay.
 
-  Worse than "in principle": we tested it, and an unenrolled device that knew a
-  document's address read another org's household names and phone numbers off
-  the shared relay in about four seconds.
-
-  This is not a misconfigured relay — it is what "no encryption yet" means. A
-  relay decides who may read a document from the access rules attached to that
-  document, and today's documents carry none. So **any** relay, however
-  carefully run, will hand them to whoever asks. The roster protects data that
-  your devices serve each other; it cannot protect data sitting on a relay.
-
-  End-to-end encryption is being built (see below) and is what actually closes
-  this. Until then, the protection is that the relay is a machine you control —
-  which is why running your own matters.
+  These orgs cannot be encrypted in place — encrypted documents get new
+  addresses. Moving one across means creating a new org and re-entering or
+  importing its data. If you hold real household PII in an org from before this
+  change, that is worth doing.
 - **In a local-first app, every enrolled device holds the whole dataset.** The
   admin/volunteer split hides destructive actions from volunteers, but it's a
   guard against accidents, not a hard security boundary between people already
@@ -52,25 +52,35 @@ Be clear-eyed about these, especially for sensitive data:
 - **Revoking a device stops future sync**, but a device that already synced has
   a copy of what it saw. Treat revocation as "no more updates," not "unsee."
 
-## What's coming: real end-to-end encryption
+## End-to-end encryption
 
-We're adding [Keyhive](https://github.com/inkandswitch/keyhive) so that document
-contents are encrypted for the specific devices you've granted access. When it's
-on:
+**New orgs are end-to-end encrypted.** Using
+[Keyhive](https://github.com/inkandswitch/keyhive), your data is encrypted for
+the specific devices you've added, and nobody else — including whoever runs the
+relay — can read it.
 
-- A relay stores **ciphertext it cannot read**, so it no longer matters much
+- A relay stores **ciphertext it cannot read**. It shuttles your updates without
+  being able to see a single name or phone number, so it no longer matters much
   whose relay you use.
-- **Revoking a device is cryptographic**, not just a rule other devices agree to
-  follow. A revoked device cannot decrypt anything written after its removal —
-  though it still keeps whatever it already synced, so "no more updates, not
-  unsee" stays true.
-- Per-domain access becomes real: a device granted the roster but denied distros
-  cannot decrypt distros, rather than relying on other devices to refuse it.
+- **Adding someone to your team gives them the keys; revoking takes them back.**
+  This is arithmetic, not a rule other devices agree to follow. A revoked device
+  cannot decrypt anything written after you removed it, even if it ignores every
+  rule in this app.
+- **Denying a data domain really denies it.** A volunteer you've denied
+  distros can't decrypt distros — the data never becomes readable to them,
+  rather than other devices politely declining to send it.
 
-The groundwork is merged and tested end-to-end, but it is **not enabled in the
-app yet** — it needs a relay running in keyhive mode, and existing orgs need a
-migration (encrypted documents get new addresses, so invite links change). Until
-this ships, everything in the section above still applies.
+What this still doesn't hide, deliberately:
+
+- **The roster itself is not encrypted.** It holds device names, roles and
+  public keys, and a joining device has to read it to introduce itself before
+  anyone can give it keys. The household data is what's encrypted.
+- **A relay can see the shape of your activity** — which devices are online,
+  when membership changes, how much traffic there is — just not its contents.
+- **Revocation is still "no more updates," not "unsee."** A device keeps
+  whatever it already synced. Only what comes after is out of reach.
+- **Every device on your team can read everything** it's been granted. That's
+  what local-first means; only add devices you'd trust with the whole list.
 
 ## Practical guidance
 

@@ -11,7 +11,14 @@
 import { WebCryptoSigner } from "@automerge/automerge-subduction";
 import { Repo, initSubduction } from "@automerge/automerge-repo";
 import { IndexedDBStorageAdapter } from "@automerge/automerge-repo-storage-indexeddb";
-import { DEFAULT_SYNC_ENDPOINT, learnedRelayPeers, openStore, type BamStore } from "../src/store.ts";
+import {
+  DEFAULT_SYNC_ENDPOINT,
+  KEYHIVE_SYNC_ENDPOINT,
+  learnedRelayPeers,
+  openStore,
+  syncAccess,
+  type BamStore,
+} from "../src/store.ts";
 import { decryptCheckpoint, fetchFromIpfs, importCheckpoint } from "../src/checkpoint.ts";
 import { rosterPolicy } from "../src/roster.ts";
 import type { RosterDoc } from "../src/schema.ts";
@@ -76,6 +83,14 @@ interface AppConfig {
     shortName?: string;
     branding?: { primaryColor?: string; themeColor?: string; title?: string; logo?: string };
   };
+  /**
+   * This org's data is end-to-end encrypted (see src/keyhive.ts). Sticky per
+   * device: an org is either encrypted or it isn't, decided when it was
+   * created, and opening it the other way fails loudly rather than silently
+   * producing an org that can't decrypt itself. Absent on orgs created before
+   * encryption existed, which keep working unchanged.
+   */
+  encrypted?: boolean;
 }
 
 const CONFIG_KEY = "bam-local-first-config";
@@ -143,9 +158,9 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
       logoSelect.append(opt);
     }
     const deviceName = el("input", { class: "input", placeholder: "e.g. Rosa — laptop" });
-    // Default to the maintainers' community relay so a new org can invite and
-    // sync out of the box; changing/removing it is an "Advanced" option below.
-    const createEndpoint = el("input", { class: "input", value: DEFAULT_SYNC_ENDPOINT }) as HTMLInputElement;
+    // New orgs are encrypted, so they default to the relay that can carry
+    // encrypted traffic. The plain community relay drops it silently.
+    const createEndpoint = el("input", { class: "input", value: KEYHIVE_SYNC_ENDPOINT }) as HTMLInputElement;
     const createBtn = el("button", { class: "btn btn-primary btn-block" }, "Create a new org on this device");
 
     const rosterUrl = el("input", { class: "input", placeholder: "automerge:…" });
@@ -155,12 +170,16 @@ function firstRunScreen(root: HTMLElement, peerId: string): Promise<AppConfig> {
 
     createBtn.onclick = () => {
       const name = orgName.value.trim() || "My Mutual Aid";
+      const endpointValue = createEndpoint.value.trim() || undefined;
       resolve({
         mode: "create",
         orgName: name,
         deviceName: deviceName.value.trim() || undefined,
         // TOFU applies when an endpoint is set with no pinned relay key.
-        endpoint: createEndpoint.value.trim() || undefined,
+        endpoint: endpointValue,
+        // Encrypt new orgs, unless they've been pointed at a relay that can't
+        // carry encrypted traffic — in which case nothing would ever sync.
+        encrypted: !endpointValue || endpointValue === KEYHIVE_SYNC_ENDPOINT,
         orgConfig: {
           name,
           shortName: shortName.value.trim() || undefined,
@@ -487,6 +506,7 @@ async function inviteScreen(
           rosterUrl: payload.rosterUrl,
           endpoint: payload.endpoint,
           relayPeer: payload.relayPeer,
+          ...(payload.enc ? { encrypted: true } : {}),
         },
         deviceName,
         profile: Object.keys(profile).length ? profile : undefined,
@@ -543,23 +563,41 @@ async function boot(): Promise<void> {
   // Relay-peer field left empty + an endpoint set = trust-on-first-use:
   // learn the relay's key on this connect, pin it in the saved config.
   const tofu = !!config.endpoint && !config.relayPeer;
-  let store: BamStore;
-  try {
-    store = await openStore({
+  const open = (encrypted: boolean): Promise<BamStore> =>
+    openStore({
       signer,
       storage,
       invite: inviteRedemption,
-      endpoints: config.endpoint ? [config.endpoint] : [],
-      alwaysAllow: config.relayPeer ? [config.relayPeer] : [],
-      trustDialedRelays: tofu,
-      ...(config.mode === "join"
-        ? { rosterUrl: config.rosterUrl }
+      endpoints: config!.endpoint ? [config!.endpoint] : [],
+      alwaysAllow: config!.relayPeer ? [config!.relayPeer] : [],
+      // Keyhive already trusts its sync server by its shipped identity, and
+      // trust-on-first-use would hand a stranger the same standing.
+      trustDialedRelays: tofu && !encrypted,
+      ...(encrypted ? { keyhive: true } : {}),
+      ...(config!.mode === "join"
+        ? { rosterUrl: config!.rosterUrl }
         : {
-            createOrg: config.orgName ?? "My Mutual Aid",
-            deviceName: config.deviceName || "founding device",
-            orgConfig: config.orgConfig,
+            createOrg: config!.orgName ?? "My Mutual Aid",
+            deviceName: config!.deviceName || "founding device",
+            orgConfig: config!.orgConfig,
           }),
     });
+
+  let store: BamStore;
+  try {
+    try {
+      store = await open(!!config.encrypted);
+    } catch (err) {
+      // Joining by a pasted roster link (or an invite made before encryption
+      // existed) can't say whether the org is encrypted. The org itself knows,
+      // and openStore says so precisely — so take it at its word and retry
+      // rather than making the volunteer answer a question about cryptography.
+      const message = err instanceof Error ? err.message : String(err);
+      if (!/encrypted|encryption/i.test(message) || config.mode !== "join") throw err;
+      const encrypted = /open it with keyhive enabled/i.test(message);
+      store = await open(encrypted);
+      config = { ...config, encrypted };
+    }
   } catch (err) {
     localStorage.removeItem(CONFIG_KEY);
     root.innerHTML = `<div class='card' style='max-width:560px;margin:40px auto'>
@@ -611,6 +649,8 @@ async function boot(): Promise<void> {
       })),
     /** This device's volunteer profile (languages, vehicle, availability). */
     myProfile: () => store.roster.doc()?.members[store.peerId]?.profile ?? null,
+    /** Whether this org's data is end-to-end encrypted. */
+    encrypted: () => !!store.roster.doc()?.encrypted,
     revoke: (peerId: string) => revokeMember(store.roster, store.peerId, peerId),
     reinstate: (peerId: string) => reinstateMember(store.roster, store.peerId, peerId),
     // Data domains (Architecture A): grant/deny what each device may SYNC.
@@ -639,6 +679,40 @@ async function boot(): Promise<void> {
       setViewGrant(store.roster, store.peerId, peerId, view, allowed),
     onChange: (cb: () => void) => store.roster.on("change", cb),
   };
+
+  // Keep decryption keys in step with the roster. Membership edits are plain
+  // document writes — they can't grant keys themselves, because the admin
+  // making them may be offline and granting is asynchronous. So watch the
+  // roster instead: every change (ours or a peer's) reconciles, which also
+  // catches a volunteer publishing their contact card minutes after being
+  // added. Debounced because a single UI action can touch the doc repeatedly,
+  // and serialised because keyhive's WASM is not reentrant.
+  if (store.hive) {
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    let running = false;
+    const reconcile = async (): Promise<void> => {
+      if (running) return;
+      running = true;
+      try {
+        const changed = await syncAccess(store);
+        if (changed.granted.length || changed.revoked.length) {
+          console.info("[keyhive] access updated", changed);
+        }
+      } catch (err) {
+        console.warn("[keyhive] could not update access", err);
+      } finally {
+        running = false;
+      }
+    };
+    store.roster.on("change", () => {
+      clearTimeout(pending);
+      pending = setTimeout(() => void reconcile(), 1500);
+    });
+    // Also on a timer: a volunteer's card arrives by sync, and if it lands
+    // while this admin is mid-reconcile the change event above is already
+    // spent. Cheap when there is nothing to do (a list comparison).
+    setInterval(() => void reconcile(), 30000);
+  }
   // The router consults this per-device map on top of the org's feature
   // toggles — a denied view disappears from the nav and won't render.
   const myViewDenials = (): Record<string, boolean> => {

@@ -339,6 +339,13 @@ export interface RosterMember {
   viewGrants?: { [view: string]: boolean };
   /** Self-stamped by the device at boot — drives access-recert sweeps. */
   lastSeenAt?: string; // ISO datetime
+  /**
+   * This device's Keyhive contact card (JSON), published by the device itself
+   * in an encrypted org. Admins need it to grant decryption access, so a
+   * member without one is on the roster but cannot yet read any data — the
+   * card is how "add someone" becomes "give someone the keys".
+   */
+  contactCard?: string;
 }
 
 /**
@@ -390,6 +397,13 @@ export interface RosterDoc {
   dataDomains?: {
     [key: string]: { name: string; docUrl: string; createdAt: string };
   };
+  /**
+   * This org's data documents are Keyhive-encrypted: only devices an admin has
+   * granted access can decrypt them, and a relay stores ciphertext it cannot
+   * read. The roster itself stays unencrypted — a joining device has to read
+   * it to publish its contact card before anyone can grant it anything.
+   */
+  encrypted?: boolean;
 }
 
 /** Automerge rejects explicit `undefined`; drop such keys (recursively) so an

@@ -9,10 +9,11 @@ import { viteSingleFile } from "vite-plugin-singlefile";
 export default defineConfig({
   root: "web",
   plugins: [wasm(), viteSingleFile({ removeViteModuleLoader: true })],
-  // Keyhive ships its WASM inlined as base64 (~1 MB gzipped). Until the
-  // console can turn encryption on, leave it out unless KEYHIVE=1 — the
-  // constant folds away and rollup drops the dynamic import in src/store.ts.
-  define: { __KEYHIVE_BUILD__: JSON.stringify(process.env.KEYHIVE === "1") },
+  // New orgs are encrypted, so keyhive has to be in the bundle or creating one
+  // fails outright. KEYHIVE=0 drops it (and ~1 MB gzipped of inlined WASM) for
+  // a build that will only ever open pre-encryption orgs; the constant folds
+  // away and rollup removes the dynamic import in src/store.ts.
+  define: { __KEYHIVE_BUILD__: JSON.stringify(process.env.KEYHIVE !== "0") },
   resolve: {
     // Force the `import` condition so subduction resolves to web.js
     // (internally consistent web glue + inlined wasm), not the browser
