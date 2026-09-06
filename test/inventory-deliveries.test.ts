@@ -21,7 +21,7 @@ import { expireStale } from "../src/domain/lifecycle.ts";
 import { setItemPolicy } from "../src/domain/cooldowns.ts";
 import { waitlistReport } from "../src/domain/reporting.ts";
 import { localDate, nowIso } from "../src/schema.ts";
-import { daysAgo, freshStore, makeHousehold, makeRequest } from "./helpers.ts";
+import { FIXED_NOW, daysAgo, freshStore, makeHousehold, makeRequest } from "./helpers.ts";
 
 describe("inventory", () => {
   it("counts set stock, fulfill decrements, outreach skips OUT items", async () => {
@@ -103,7 +103,7 @@ describe("per-type expiry windows", () => {
     setItemPolicy(store.base, "adult_diapers", { expiryDays: 7 });
     setItemPolicy(store.base, "queen_mattress", { expiryDays: 60 });
 
-    const report = expireStale(store.base);
+    const report = expireStale(store.base, FIXED_NOW);
     expect(report.timedOutRequestIds).toContain(urgent.id);
     expect(report.timedOutRequestIds).not.toContain(patient.id);
     expect(store.base.doc().requests[patient.id]!.status).toBe("Open");

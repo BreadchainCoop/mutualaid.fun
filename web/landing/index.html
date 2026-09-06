@@ -23,6 +23,8 @@
         --muted: #595959;      /* surface-grey-2 */
         --brand: #ea5817;      /* core-orange */
         --brand-1: #d14a0f;    /* orange-1 (hover) */
+        --button: #c7470c;     /* orange with >= 4.5:1 contrast against white */
+        --button-hover: #a93808;
         --brand-soft: #ffe4d4;
         --accent: #286b63;     /* primary-jade */
         --accent-2: #134a44;   /* jade-2 */
@@ -32,7 +34,6 @@
         --lift-sm: 2px 2px 0 0 var(--lift-shadow);
         --radius: 12px;
         --radius-sm: 8px;
-        --radius-pill: 999px;
         --maxw: 1080px;
         --font: "Bread Body", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           Helvetica, Arial, "Noto Sans", sans-serif;
@@ -74,7 +75,7 @@
         gap: 8px;
         padding: 14px 26px;
         font-family: var(--font);
-        font-size: 19px; /* >=18.66px bold = WCAG large text, so #ea5817/#fff clears AA at 3:1 */
+        font-size: 19px;
         font-weight: 700;
         line-height: 1;
         color: var(--ink);
@@ -88,12 +89,10 @@
       }
       .btn:hover { background: var(--surface-2); }
       .btn:active { transform: translate(4px, 4px); box-shadow: 0 0 0 0 var(--lift-shadow); }
-      .btn--primary { background: var(--brand); border-color: var(--ink); color: #fff; }
-      .btn--primary:hover { background: var(--brand-1); }
+      .btn--primary { background: var(--button); border-color: var(--ink); color: #fff; }
+      .btn--primary:hover { background: var(--button-hover); }
       .btn--secondary { background: var(--brand-soft); color: var(--brand-1); }
       .btn--secondary:hover { background: #ffd6c0; }
-      .btn--jade { background: var(--accent); color: #fff; }
-      .btn--jade:hover { background: var(--accent-2); }
       .btn--sm { padding: 10px 18px; font-size: 15px; box-shadow: var(--lift-sm); }
       .btn--sm:active { transform: translate(2px, 2px); }
 
@@ -106,10 +105,9 @@
         font-size: 14px;
         font-weight: 700;
         border: 1.5px solid var(--ink);
-        border-radius: var(--radius-pill);
+        border-radius: var(--radius-sm);
         background: var(--surface);
       }
-      .chip--jade { border-color: var(--accent); color: var(--accent); background: #e4efec; }
 
       /* Header ------------------------------------------------------------ */
       .site-header {
@@ -135,8 +133,8 @@
       .brand__mark--dp { border-radius: 0; box-shadow: none; margin-left: -3px; }
       .brand__name { font-family: var(--font-display); font-weight: 900; font-size: 19px; letter-spacing: -0.01em; }
       .site-nav { display: flex; align-items: center; gap: 26px; margin-left: auto; }
-      .site-nav a { color: var(--ink); text-decoration: none; font-weight: 700; font-size: 15px; opacity: 0.82; }
-      .site-nav a:hover { opacity: 1; color: var(--brand); }
+      .site-nav__link { color: var(--ink); text-decoration: none; font-weight: 700; font-size: 15px; opacity: 0.82; }
+      .site-nav__link:hover { opacity: 1; color: var(--brand); }
       .site-nav .btn { margin-left: 4px; white-space: nowrap; }
       .brand { min-width: 0; }
       .brand__name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -145,25 +143,18 @@
         .site-header__inner { padding: 0 16px; gap: 10px; }
         .brand__name { font-size: 16px; }
         .site-nav .btn { padding: 8px 12px; }
+        .nav-cta-detail { display: none; }
       }
 
       /* Hero -------------------------------------------------------------- */
-      .hero { padding: 76px 0 40px; }
-      .eyebrow {
-        display: inline-block;
-        font-weight: 700;
-        font-size: 14px;
-        letter-spacing: 0.02em;
-        color: var(--accent);
-        margin-bottom: 22px;
-      }
+      .hero { padding: 64px 0 48px; }
       .hero h1 { font-size: clamp(44px, 8vw, 92px); color: var(--brand); }
       .hero__tagline {
         font-family: var(--font-display);
-        font-weight: 900;
-        font-style: italic;
+        font-weight: 400;
+        font-style: normal;
         color: var(--accent);
-        font-size: clamp(24px, 4vw, 44px);
+        font-size: clamp(24px, 3.4vw, 36px);
         letter-spacing: -0.01em;
         margin: 6px 0 0;
       }
@@ -171,13 +162,19 @@
         max-width: 660px;
         font-size: clamp(18px, 2.4vw, 21px);
         color: #2c2724;
-        margin: 26px 0 0;
+        margin: 20px 0 0;
       }
       .hero__cta { display: flex; flex-wrap: wrap; gap: 14px; margin: 34px 0 0; }
-      .trust { display: flex; flex-wrap: wrap; gap: 10px; margin: 34px 0 0; }
+      .trust { display: flex; flex-wrap: wrap; gap: 10px; margin: 28px 0 0; }
+      @media (max-width: 560px) {
+        .hero { padding: 40px 0; }
+        .hero__cta { margin-top: 26px; }
+        .trust { gap: 8px; }
+        .chip { padding: 6px 10px; font-size: 13px; }
+      }
 
       /* Sections ---------------------------------------------------------- */
-      section { padding: 56px 0; }
+      section { padding: 56px 0; scroll-margin-top: 88px; }
       .section-head { max-width: 640px; margin: 0 0 36px; }
       .section-head h2 { font-size: clamp(30px, 5vw, 46px); }
       .section-head p { font-size: 19px; color: #2c2724; margin: 14px 0 0; }
@@ -185,20 +182,37 @@
 
       .band { background: var(--surface); border-top: 1.5px solid var(--paper-2); border-bottom: 1.5px solid var(--paper-2); }
 
-      /* Feature grid ------------------------------------------------------ */
-      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; }
-      @media (max-width: 880px) { .grid { grid-template-columns: repeat(2, 1fr); } }
-      @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
-      .card {
-        background: var(--surface);
-        border: 1.5px solid var(--ink);
-        border-radius: var(--radius);
-        padding: 24px;
-        box-shadow: var(--lift); /* the same hard #595959 lift as buttons — reads on paper and on the band */
+      /* Workflow tour — actual app screens, with fictional sample data ---- */
+      .workflow-tabs { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-bottom: 22px; }
+      .workflow-tab {
+        display: flex; align-items: center; justify-content: center; gap: 8px;
+        padding: 13px 10px; border: 1.5px solid var(--paper-2); border-radius: var(--radius-sm);
+        color: var(--ink); background: var(--bg); font-size: 15px; font-weight: 700;
+        text-decoration: none; text-align: center;
       }
-      .card__icon { font-size: 30px; line-height: 1; }
-      .card h3 { font-size: 21px; margin: 14px 0 8px; }
-      .card p { margin: 0; color: #2c2724; font-size: 16.5px; }
+      .workflow-tab:hover { border-color: var(--accent); background: #e4efec; }
+      .workflow-tab[aria-selected="true"] { color: #fff; background: var(--accent); border-color: var(--accent-2); box-shadow: var(--lift-sm); }
+      .workflow-panel { padding: 0; margin: 0 0 28px; }
+      .workflow-panel[hidden] { display: none; }
+      .workflow-intro { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin: 0 0 20px; }
+      .workflow-intro h3 { font-size: 25px; margin-bottom: 8px; }
+      .workflow-intro p { max-width: 680px; margin: 0; color: #2c2724; }
+      .workflow-count { color: var(--accent); font-size: 14px; font-weight: 700; white-space: nowrap; }
+      .workflow-preview { margin: 0; border: 1.5px solid var(--ink); border-radius: var(--radius); overflow: hidden; box-shadow: var(--lift); background: var(--bg); }
+      .workflow-preview img { display: block; width: 100%; height: auto; }
+      .workflow-caption { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 20px; padding: 14px 18px; border-top: 1.5px solid var(--paper-2); font-size: 14px; background: var(--bg); }
+      .workflow-caption a { color: var(--accent-2); font-weight: 700; }
+      .workflow-note { color: var(--muted); font-size: 14px; margin: 20px 0 0; }
+      .workflow-action { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-bottom: 18px; }
+      .workflow-action[hidden] { display: none; }
+      .workflow-action p { margin: 0; font-size: 15px; color: var(--accent-2); }
+      @media (max-width: 780px) {
+        .workflow-tabs { grid-template-columns: repeat(3, 1fr); }
+        .workflow-tab { padding: 12px 6px; font-size: 14px; gap: 6px; }
+        .workflow-intro { gap: 12px; }
+        .workflow-intro h3 { font-size: 23px; }
+        .workflow-count { font-size: 12px; }
+      }
 
       /* Steps ------------------------------------------------------------- */
       .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; counter-reset: step; }
@@ -236,10 +250,12 @@
       .tick { color: var(--ok); font-weight: 900; flex: none; }
 
       /* Final CTA --------------------------------------------------------- */
-      .cta-final { text-align: center; padding: 84px 0; }
-      .cta-final h2 { font-size: clamp(32px, 6vw, 58px); color: var(--brand); }
-      .cta-final p { font-size: 20px; color: #2c2724; margin: 16px auto 32px; max-width: 540px; }
+      .cta-final { text-align: center; padding: 84px 0; background: var(--accent-2); color: #fff; }
+      .cta-final h2 { font-size: clamp(32px, 6vw, 58px); color: #fff; }
+      .cta-final p { font-size: 20px; color: #e4efec; margin: 16px auto 32px; max-width: 540px; }
       .cta-final .hero__cta { justify-content: center; }
+      .cta-final .btn { --lift-shadow: #082d28; }
+      .cta-final :focus-visible { outline-color: #fff; }
 
       /* Footer ------------------------------------------------------------ */
       footer { border-top: 1.5px solid var(--paper-2); background: var(--surface); }
@@ -298,7 +314,7 @@
           <a class="site-nav__link" href="#features">Features</a>
           <a class="site-nav__link" href="#how">How it works</a>
           <a class="site-nav__link" href="https://github.com/BreadchainCoop/mutual-aid-toolkit/tree/main/docs">Docs</a>
-          <a class="btn btn--primary btn--sm" href="./app/">Launch the toolkit →</a>
+          <a class="btn btn--primary btn--sm" href="./app/"><span>Launch<span class="nav-cta-detail"> the toolkit</span> →</span></a>
         </nav>
       </div>
     </header>
@@ -308,14 +324,11 @@
       <!-- Hero -->
       <section class="hero">
         <div class="wrap">
-          <span class="eyebrow">Free &amp; open source · Works offline · A Bread Cooperative × Decentral Park project</span>
           <h1>Mutual aid tools that belong to your community.</h1>
           <p class="hero__tagline">Your tools. Your data. Your rules.</p>
           <p class="hero__sub">
-            Intake, outreach, check-in and distribution — the whole rhythm of a
-            mutual aid drive, running on your own devices. No company in the
-            middle. It works offline, and the data stays with the people doing
-            the work.
+            From the first request to distribution day, run your mutual aid
+            drive with one toolkit — on your own devices.
           </p>
           <div class="hero__cta">
             <a class="btn btn--primary" href="./app/">Launch the toolkit →</a>
@@ -325,7 +338,7 @@
             <span class="chip"><span aria-hidden="true">🌐</span> Works offline</span>
             <span class="chip"><span aria-hidden="true">🚫</span> No company in the middle</span>
             <span class="chip"><span aria-hidden="true">🗣️</span> Speaks your neighbors' languages</span>
-            <span class="chip"><span aria-hidden="true">🛠️</span> Yours to shape</span>
+            <span class="chip"><span aria-hidden="true">🛠️</span> Free &amp; open source</span>
           </div>
         </div>
       </section>
@@ -336,40 +349,81 @@
           <div class="section-head">
             <div class="kicker">The whole workflow</div>
             <h2>Everything a distribution needs.</h2>
-            <p>One tool for the whole drive — from a neighbor asking for help to handing it to them, and the honest record in between.</p>
+            <p>Follow a request from the first conversation to distribution day. Explore the toolkit your team will actually use.</p>
           </div>
-          <div class="grid">
-            <div class="card">
-              <div class="card__icon" aria-hidden="true">📝</div>
-              <h3>Intake</h3>
-              <p>Neighbors ask for what they need — food, furniture, social services — in the language they speak. Every request becomes a household you can follow up with.</p>
-            </div>
-            <div class="card">
-              <div class="card__icon" aria-hidden="true">📣</div>
-              <h3>Outreach</h3>
-              <p>Build a call list by need or language, then queue a text for everyone at once — each household in the language they'll actually understand.</p>
-            </div>
-            <div class="card">
-              <div class="card__icon" aria-hidden="true">✅</div>
-              <h3>Check-in</h3>
-              <p>The busy-day screen. Find someone by the last four digits of their phone, run through their open requests, mark what they got.</p>
-            </div>
-            <div class="card">
-              <div class="card__icon" aria-hidden="true">📦</div>
-              <h3>Distros &amp; no-shows</h3>
-              <p>Schedule an event, see who's booked, and — when it's over — run the no-show pass so the list reflects reality.</p>
-            </div>
-            <div class="card">
-              <div class="card__icon" aria-hidden="true">📊</div>
-              <h3>Dashboard</h3>
-              <p>Open requests and what's most needed, ranked. Your community's needs at a glance, so you can plan the next drive around them.</p>
-            </div>
-            <div class="card">
-              <div class="card__icon" aria-hidden="true">🔑</div>
-              <h3>Your team &amp; access</h3>
-              <p>Invite volunteers with a QR code. You decide who can do what — and you can take access back anytime, from any device.</p>
-            </div>
+          <div class="workflow-tabs" aria-label="Explore the toolkit">
+            <a class="workflow-tab" id="tab-intake" href="#workflow-intake"><span aria-hidden="true">📝</span> Intake</a>
+            <a class="workflow-tab" id="tab-outreach" href="#workflow-outreach"><span aria-hidden="true">📣</span> Outreach</a>
+            <a class="workflow-tab" id="tab-checkin" href="#workflow-checkin"><span aria-hidden="true">✅</span> Check-in</a>
+            <a class="workflow-tab" id="tab-distros" href="#workflow-distros"><span aria-hidden="true">📦</span> Distros</a>
+            <a class="workflow-tab" id="tab-dashboard" href="#workflow-dashboard"><span aria-hidden="true">📊</span> Dashboard</a>
+            <a class="workflow-tab" id="tab-team" href="#workflow-team"><span aria-hidden="true">🔑</span> Your team</a>
           </div>
+          <section class="workflow-panel" id="workflow-intake" aria-labelledby="tab-intake">
+            <div class="workflow-intro">
+              <div><h3>A request starts with a neighbor.</h3><p>Record what a household needs, from groceries to social services, in the language they speak. A guided form keeps each step simple.</p></div>
+              <span class="workflow-count">01 / 06</span>
+            </div>
+            <figure class="workflow-preview">
+              <img src="./assets/workflow/intake.png" width="1120" height="900" loading="lazy" decoding="async" alt="Intake form at step 2 of 4, with Groceries and Soap &amp; Shower selected for a sample household." />
+              <figcaption class="workflow-caption"><span>Select the items a neighbor needs.</span><a href="./assets/workflow/intake.png" target="_blank" rel="noopener" aria-label="View full Intake screenshot (opens in a new tab)">View full screenshot ↗</a></figcaption>
+            </figure>
+          </section>
+          <section class="workflow-panel" id="workflow-outreach" aria-labelledby="tab-outreach">
+            <div class="workflow-intro">
+              <div><h3>Turn open requests into a call list.</h3><p>Find households by need or language, then prepare messages in the language each neighbor understands.</p></div>
+              <span class="workflow-count">02 / 06</span>
+            </div>
+            <figure class="workflow-preview">
+              <img src="./assets/workflow/outreach.png" width="1120" height="900" loading="lazy" decoding="async" alt="Outreach screen showing a list of sample households with open requests and a pipeline from requests to delivery." />
+              <figcaption class="workflow-caption"><span>Build a list from open requests, ready for follow-up.</span><a href="./assets/workflow/outreach.png" target="_blank" rel="noopener" aria-label="View full Outreach screenshot (opens in a new tab)">View full screenshot ↗</a></figcaption>
+            </figure>
+          </section>
+          <section class="workflow-panel" id="workflow-checkin" aria-labelledby="tab-checkin">
+            <div class="workflow-intro">
+              <div><h3>Find a neighbor. Hand things over.</h3><p>Look someone up by the last four digits of their phone, check them in, and record what they received.</p></div>
+              <span class="workflow-count">03 / 06</span>
+            </div>
+            <div class="workflow-action" hidden>
+              <button class="btn btn--secondary btn--sm" type="button" data-checkin-toggle aria-pressed="false">Preview completed check-in →</button>
+              <p data-checkin-status aria-live="polite">Two requests ready to hand over.</p>
+            </div>
+            <figure class="workflow-preview">
+              <img src="./assets/workflow/checkin.png" width="1120" height="900" loading="lazy" decoding="async" alt="Check-in screen for the fictional household Ana, showing open groceries and soap requests." />
+              <figcaption class="workflow-caption"><span>Before: Ana has groceries and soap waiting.</span><a href="./assets/workflow/checkin.png" target="_blank" rel="noopener" aria-label="View full Check-in screenshot (opens in a new tab)">View full screenshot ↗</a></figcaption>
+            </figure>
+          </section>
+          <section class="workflow-panel" id="workflow-distros" aria-labelledby="tab-distros">
+            <div class="workflow-intro">
+              <div><h3>Keep distribution day on track.</h3><p>Schedule your next event, see appointments and volunteer coverage, and account for no-shows when the day is over.</p></div>
+              <span class="workflow-count">04 / 06</span>
+            </div>
+            <figure class="workflow-preview">
+              <img src="./assets/workflow/distros.png" width="1120" height="900" loading="lazy" decoding="async" alt="Distribution screen with a sample event at Maple Street Community Garden and a checklist of scheduling, shifts, appointments and check-in." />
+              <figcaption class="workflow-caption"><span>One place for the next distro and everything it needs.</span><a href="./assets/workflow/distros.png" target="_blank" rel="noopener" aria-label="View full Distros screenshot (opens in a new tab)">View full screenshot ↗</a></figcaption>
+            </figure>
+          </section>
+          <section class="workflow-panel" id="workflow-dashboard" aria-labelledby="tab-dashboard">
+            <div class="workflow-intro">
+              <div><h3>See what your community needs.</h3><p>Open requests and the most-needed items, ranked. Use the real picture of your community&#x27;s needs to plan the next drive.</p></div>
+              <span class="workflow-count">05 / 06</span>
+            </div>
+            <figure class="workflow-preview">
+              <img src="./assets/workflow/dashboard.png" width="1120" height="900" loading="lazy" decoding="async" alt="Dashboard with sample request counts and ranked open requests for groceries, diapers, school supplies, clothing and soap." />
+              <figcaption class="workflow-caption"><span>Requests become a clear picture of what to prepare.</span><a href="./assets/workflow/dashboard.png" target="_blank" rel="noopener" aria-label="View full Dashboard screenshot (opens in a new tab)">View full screenshot ↗</a></figcaption>
+            </figure>
+          </section>
+          <section class="workflow-panel" id="workflow-team" aria-labelledby="tab-team">
+            <div class="workflow-intro">
+              <div><h3>Give volunteers the access they need.</h3><p>Create a QR invite and choose which tools volunteers can use. Manage each person&#x27;s access as your team changes.</p></div>
+              <span class="workflow-count">06 / 06</span>
+            </div>
+            <figure class="workflow-preview">
+              <img src="./assets/workflow/team.png" width="1120" height="900" loading="lazy" decoding="async" alt="Volunteer invite form named Saturday volunteers, with controls for tool permissions, expiry and number of uses." />
+              <figcaption class="workflow-caption"><span>Set up an invite for the next group of volunteers.</span><a href="./assets/workflow/team.png" target="_blank" rel="noopener" aria-label="View full Your team screenshot (opens in a new tab)">View full screenshot ↗</a></figcaption>
+            </figure>
+          </section>
+          <p class="workflow-note">Real toolkit screens, shown with fictional sample data. Choose a feature to take a look around.</p>
         </div>
       </section>
 
@@ -399,7 +453,7 @@
             </div>
           </div>
           <div style="margin-top:34px">
-            <a class="btn btn--jade" href="./app/">Launch the toolkit →</a>
+            <a class="btn btn--primary" href="./app/">Launch the toolkit →</a>
           </div>
         </div>
       </section>
@@ -498,5 +552,66 @@
         <p class="footer__note">Built with the Bread &amp; Decentral Park UI kits · solidarity, made practical.</p>
       </div>
     </footer>
+    <script>
+      // Enhance ordinary anchor links into keyboard-accessible tabs. Without
+      // JavaScript, every feature and screenshot remains visible on the page.
+      const tabList = document.querySelector(".workflow-tabs");
+      const tabs = [...tabList.querySelectorAll(".workflow-tab")];
+      const panels = tabs.map((tab) => document.querySelector(tab.getAttribute("href")));
+      tabList.setAttribute("role", "tablist");
+      tabs.forEach((tab, index) => {
+        tab.setAttribute("role", "tab");
+        tab.setAttribute("aria-controls", panels[index].id);
+        panels[index].setAttribute("role", "tabpanel");
+        panels[index].tabIndex = 0;
+        tab.addEventListener("click", (event) => {
+          event.preventDefault();
+          selectTab(index);
+        });
+        tab.addEventListener("keydown", (event) => {
+          let next;
+          if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+          if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+          if (event.key === "Home") next = 0;
+          if (event.key === "End") next = tabs.length - 1;
+          if (next === undefined) return;
+          event.preventDefault();
+          selectTab(next);
+          tabs[next].focus();
+        });
+      });
+      function selectTab(index) {
+        tabs.forEach((tab, i) => {
+          tab.setAttribute("aria-selected", String(i === index));
+          tab.tabIndex = i === index ? 0 : -1;
+          panels[i].hidden = i !== index;
+        });
+      }
+      function selectFromHash() {
+        const index = panels.findIndex((panel) => "#" + panel.id === location.hash);
+        if (index !== -1) selectTab(index);
+      }
+      selectTab(0);
+      selectFromHash();
+      window.addEventListener("hashchange", selectFromHash);
+
+      const checkin = document.querySelector("#workflow-checkin");
+      const previewButton = checkin.querySelector("[data-checkin-toggle]");
+      const previewImage = checkin.querySelector("img");
+      const previewLink = checkin.querySelector(".workflow-caption a");
+      const initialAlt = previewImage.alt;
+      const initialCaption = checkin.querySelector("figcaption span").textContent;
+      checkin.querySelector(".workflow-action").hidden = false;
+      previewButton.addEventListener("click", () => {
+        const complete = previewButton.getAttribute("aria-pressed") !== "true";
+        previewButton.setAttribute("aria-pressed", String(complete));
+        previewButton.textContent = complete ? "← Back to open requests" : "Preview completed check-in →";
+        previewImage.src = "./assets/workflow/checkin" + (complete ? "-complete" : "") + ".png";
+        previewLink.href = previewImage.src;
+        previewImage.alt = complete ? "Ana is checked in, with groceries and soap marked delivered and no open requests remaining." : initialAlt;
+        checkin.querySelector("figcaption span").textContent = complete ? "After: Ana is checked in and both requests are delivered." : initialCaption;
+        checkin.querySelector("[data-checkin-status]").textContent = complete ? "Checked in. Both requests delivered." : "Two requests ready to hand over.";
+      });
+    </script>
   </body>
 </html>
